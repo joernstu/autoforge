@@ -416,10 +416,10 @@ def feature_create_bulk(
 
 @mcp.tool()
 def feature_create(
-    category: Annotated[str, Field(description="Feature category (e.g., 'Authentication', 'API', 'UI')")],
-    name: Annotated[str, Field(description="Feature name")],
-    description: Annotated[str, Field(description="Detailed description of the feature")],
-    steps: Annotated[list[str], Field(description="List of implementation/verification steps")]
+    category: Annotated[str, Field(min_length=1, max_length=100, description="Feature category (e.g., 'Authentication', 'API', 'UI')")],
+    name: Annotated[str, Field(min_length=1, max_length=255, description="Feature name")],
+    description: Annotated[str, Field(min_length=1, description="Detailed description of the feature")],
+    steps: Annotated[list[str], Field(min_length=1, description="List of implementation/verification steps")]
 ) -> str:
     """Create a single feature in the project backlog.
 
