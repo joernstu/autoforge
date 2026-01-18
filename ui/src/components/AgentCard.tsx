@@ -1,8 +1,8 @@
-import { MessageCircle, ScrollText, X, Copy, Check } from 'lucide-react'
+import { MessageCircle, ScrollText, X, Copy, Check, Code, FlaskConical } from 'lucide-react'
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AgentAvatar } from './AgentAvatar'
-import type { ActiveAgent, AgentLogEntry } from '../lib/types'
+import type { ActiveAgent, AgentLogEntry, AgentType } from '../lib/types'
 
 interface AgentCardProps {
   agent: ActiveAgent
@@ -50,9 +50,28 @@ function getStateColor(state: ActiveAgent['state']): string {
   }
 }
 
+// Get agent type badge config
+function getAgentTypeBadge(agentType: AgentType): { label: string; className: string; icon: typeof Code } {
+  if (agentType === 'testing') {
+    return {
+      label: 'TEST',
+      className: 'bg-purple-100 text-purple-700 border-purple-300',
+      icon: FlaskConical,
+    }
+  }
+  // Default to coding
+  return {
+    label: 'CODE',
+    className: 'bg-blue-100 text-blue-700 border-blue-300',
+    icon: Code,
+  }
+}
+
 export function AgentCard({ agent, onShowLogs }: AgentCardProps) {
   const isActive = ['thinking', 'working', 'testing'].includes(agent.state)
   const hasLogs = agent.logs && agent.logs.length > 0
+  const typeBadge = getAgentTypeBadge(agent.agentType || 'coding')
+  const TypeIcon = typeBadge.icon
 
   return (
     <div
@@ -62,6 +81,20 @@ export function AgentCard({ agent, onShowLogs }: AgentCardProps) {
         transition-all duration-300
       `}
     >
+      {/* Agent type badge */}
+      <div className="flex justify-end mb-1">
+        <span
+          className={`
+            inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold
+            uppercase tracking-wide rounded border
+            ${typeBadge.className}
+          `}
+        >
+          <TypeIcon size={10} />
+          {typeBadge.label}
+        </span>
+      </div>
+
       {/* Header with avatar and name */}
       <div className="flex items-center gap-2 mb-2">
         <AgentAvatar name={agent.agentName} state={agent.state} size="sm" />
@@ -122,6 +155,8 @@ interface AgentLogModalProps {
 
 export function AgentLogModal({ agent, logs, onClose }: AgentLogModalProps) {
   const [copied, setCopied] = useState(false)
+  const typeBadge = getAgentTypeBadge(agent.agentType || 'coding')
+  const TypeIcon = typeBadge.icon
 
   const handleCopy = async () => {
     const logText = logs
@@ -159,9 +194,21 @@ export function AgentLogModal({ agent, logs, onClose }: AgentLogModalProps) {
           <div className="flex items-center gap-3">
             <AgentAvatar name={agent.agentName} state={agent.state} size="sm" />
             <div>
-              <h2 className="font-display font-bold text-lg">
-                {agent.agentName} Logs
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="font-display font-bold text-lg">
+                  {agent.agentName} Logs
+                </h2>
+                <span
+                  className={`
+                    inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold
+                    uppercase tracking-wide rounded border
+                    ${typeBadge.className}
+                  `}
+                >
+                  <TypeIcon size={10} />
+                  {typeBadge.label}
+                </span>
+              </div>
               <p className="text-sm text-neo-text-secondary">
                 Feature #{agent.featureId}: {agent.featureName}
               </p>

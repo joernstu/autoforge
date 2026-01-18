@@ -169,8 +169,10 @@ class AgentStartRequest(BaseModel):
     """Request schema for starting the agent."""
     yolo_mode: bool | None = None  # None means use global settings
     model: str | None = None  # None means use global settings
-    parallel_mode: bool | None = None  # Enable parallel execution
-    max_concurrency: int | None = None  # Max concurrent agents (1-5)
+    parallel_mode: bool | None = None  # DEPRECATED: Use max_concurrency instead
+    max_concurrency: int | None = None  # Max concurrent coding agents (1-5)
+    testing_agent_ratio: int | None = None  # Testing agents per coding agent (0-3)
+    count_testing_in_concurrency: bool | None = None  # Count testing toward limit
 
     @field_validator('model')
     @classmethod
@@ -188,6 +190,14 @@ class AgentStartRequest(BaseModel):
             raise ValueError("max_concurrency must be between 1 and 5")
         return v
 
+    @field_validator('testing_agent_ratio')
+    @classmethod
+    def validate_testing_ratio(cls, v: int | None) -> int | None:
+        """Validate testing_agent_ratio is between 0 and 3."""
+        if v is not None and (v < 0 or v > 3):
+            raise ValueError("testing_agent_ratio must be between 0 and 3")
+        return v
+
 
 class AgentStatus(BaseModel):
     """Current agent status."""
@@ -196,8 +206,10 @@ class AgentStatus(BaseModel):
     started_at: datetime | None = None
     yolo_mode: bool = False
     model: str | None = None  # Model being used by running agent
-    parallel_mode: bool = False
+    parallel_mode: bool = False  # DEPRECATED: Always True now (unified orchestrator)
     max_concurrency: int | None = None
+    testing_agent_ratio: int = 1  # Testing agents per coding agent
+    count_testing_in_concurrency: bool = False  # Count testing toward limit
 
 
 class AgentActionResponse(BaseModel):
@@ -257,6 +269,9 @@ class WSAgentStatusMessage(BaseModel):
 # Agent state for multi-agent tracking
 AgentState = Literal["idle", "thinking", "working", "testing", "success", "error", "struggling"]
 
+# Agent type (coding vs testing)
+AgentType = Literal["coding", "testing"]
+
 # Agent mascot names assigned by index
 AGENT_MASCOTS = ["Spark", "Fizz", "Octo", "Hoot", "Buzz"]
 
@@ -266,6 +281,7 @@ class WSAgentUpdateMessage(BaseModel):
     type: Literal["agent_update"] = "agent_update"
     agentIndex: int
     agentName: str  # One of AGENT_MASCOTS
+    agentType: AgentType = "coding"  # "coding" or "testing"
     featureId: int
     featureName: str
     state: AgentState
@@ -368,6 +384,8 @@ class SettingsResponse(BaseModel):
     yolo_mode: bool = False
     model: str = DEFAULT_MODEL
     glm_mode: bool = False  # True if GLM API is configured via .env
+    testing_agent_ratio: int = 1  # Testing agents per coding agent (0-3)
+    count_testing_in_concurrency: bool = False  # Count testing toward concurrency
 
 
 class ModelsResponse(BaseModel):
@@ -380,12 +398,21 @@ class SettingsUpdate(BaseModel):
     """Request schema for updating global settings."""
     yolo_mode: bool | None = None
     model: str | None = None
+    testing_agent_ratio: int | None = None  # 0-3
+    count_testing_in_concurrency: bool | None = None
 
     @field_validator('model')
     @classmethod
     def validate_model(cls, v: str | None) -> str | None:
         if v is not None and v not in VALID_MODELS:
             raise ValueError(f"Invalid model. Must be one of: {VALID_MODELS}")
+        return v
+
+    @field_validator('testing_agent_ratio')
+    @classmethod
+    def validate_testing_ratio(cls, v: int | None) -> int | None:
+        if v is not None and (v < 0 or v > 3):
+            raise ValueError("testing_agent_ratio must be between 0 and 3")
         return v
 
 

@@ -24,21 +24,24 @@ export function AgentControl({ projectName, status }: AgentControlProps) {
 
   const isLoading = startAgent.isPending || stopAgent.isPending
   const isRunning = status === 'running' || status === 'paused'
+  const isLoadingStatus = status === 'loading'  // Status unknown, waiting for WebSocket
   const isParallel = concurrency > 1
 
   const handleStart = () => startAgent.mutate({
     yoloMode,
     parallelMode: isParallel,
-    maxConcurrency: isParallel ? concurrency : undefined,
+    maxConcurrency: concurrency,  // Always pass concurrency (1-5)
+    testingAgentRatio: settings?.testing_agent_ratio,
+    countTestingInConcurrency: settings?.count_testing_in_concurrency,
   })
   const handleStop = () => stopAgent.mutate()
 
-  // Simplified: either show Start (when stopped/crashed) or Stop (when running/paused)
+  // Simplified: either show Start (when stopped/crashed), Stop (when running/paused), or loading spinner
   const isStopped = status === 'stopped' || status === 'crashed'
 
   return (
     <div className="flex items-center gap-2">
-      {/* Concurrency slider - always visible when stopped */}
+      {/* Concurrency slider - visible when stopped (not during loading or running) */}
       {isStopped && (
         <div className="flex items-center gap-2">
           <GitBranch size={16} className={isParallel ? 'text-[var(--color-neo-primary)]' : 'text-gray-400'} />
@@ -67,7 +70,16 @@ export function AgentControl({ projectName, status }: AgentControlProps) {
         </div>
       )}
 
-      {isStopped ? (
+      {isLoadingStatus ? (
+        <button
+          disabled
+          className="neo-btn text-sm py-2 px-3 opacity-50 cursor-not-allowed"
+          title="Loading agent status..."
+          aria-label="Loading agent status"
+        >
+          <Loader2 size={18} className="animate-spin" />
+        </button>
+      ) : isStopped ? (
         <button
           onClick={handleStart}
           disabled={isLoading}

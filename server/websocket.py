@@ -24,8 +24,11 @@ _count_passing_tests = None
 
 logger = logging.getLogger(__name__)
 
-# Pattern to extract feature ID from parallel orchestrator output
+# Pattern to extract feature ID from parallel orchestrator output (coding agents)
 FEATURE_ID_PATTERN = re.compile(r'\[Feature #(\d+)\]\s*(.*)')
+
+# Pattern to extract testing agent output
+TESTING_AGENT_PATTERN = re.compile(r'\[Testing\]\s*(.*)')
 
 # Patterns for detecting agent activity and thoughts
 THOUGHT_PATTERNS = [
@@ -49,8 +52,12 @@ THOUGHT_PATTERNS = [
 class AgentTracker:
     """Tracks active agents and their states for multi-agent mode."""
 
+    # Use a special key for the testing agent since it doesn't have a fixed feature ID
+    TESTING_AGENT_KEY = -1
+
     def __init__(self):
-        # feature_id -> {name, state, last_thought, agent_index}
+        # feature_id -> {name, state, last_thought, agent_index, agent_type}
+        # For testing agents, use TESTING_AGENT_KEY as the key
         self.active_agents: dict[int, dict] = {}
         self._next_agent_index = 0
         self._lock = asyncio.Lock()
@@ -61,16 +68,24 @@ class AgentTracker:
 
         Returns None if no update should be emitted.
         """
-        # Check for feature-specific output
+        # Check for testing agent output first
+        testing_match = TESTING_AGENT_PATTERN.match(line)
+        if testing_match:
+            content = testing_match.group(1)
+            return await self._process_testing_agent_line(content)
+
+        # Check for feature-specific output (coding agents)
         match = FEATURE_ID_PATTERN.match(line)
         if not match:
             # Also check for orchestrator status messages
-            if line.startswith("Started agent for feature #"):
+            if line.startswith("Started coding agent for feature #"):
                 try:
                     feature_id = int(re.search(r'#(\d+)', line).group(1))
-                    return await self._handle_agent_start(feature_id, line)
+                    return await self._handle_agent_start(feature_id, line, agent_type="coding")
                 except (AttributeError, ValueError):
                     pass
+            elif line.startswith("Started testing agent"):
+                return await self._handle_testing_agent_start(line)
             elif line.startswith("Feature #") and ("completed" in line or "failed" in line):
                 try:
                     feature_id = int(re.search(r'#(\d+)', line).group(1))
@@ -78,6 +93,10 @@ class AgentTracker:
                     return await self._handle_agent_complete(feature_id, is_success)
                 except (AttributeError, ValueError):
                     pass
+            elif line.startswith("Testing agent") and ("completed" in line or "failed" in line):
+                # Format: "Testing agent (PID xxx) completed" or "Testing agent (PID xxx) failed"
+                is_success = "completed" in line
+                return await self._handle_testing_agent_complete(is_success)
             return None
 
         feature_id = int(match.group(1))
@@ -91,6 +110,7 @@ class AgentTracker:
                 self.active_agents[feature_id] = {
                     'name': AGENT_MASCOTS[agent_index % len(AGENT_MASCOTS)],
                     'agent_index': agent_index,
+                    'agent_type': 'coding',
                     'state': 'thinking',
                     'feature_name': f'Feature #{feature_id}',
                     'last_thought': None,
@@ -119,6 +139,7 @@ class AgentTracker:
                     'type': 'agent_update',
                     'agentIndex': agent['agent_index'],
                     'agentName': agent['name'],
+                    'agentType': agent['agent_type'],
                     'featureId': feature_id,
                     'featureName': agent['feature_name'],
                     'state': state,
@@ -127,6 +148,108 @@ class AgentTracker:
                 }
 
         return None
+
+    async def _process_testing_agent_line(self, content: str) -> dict | None:
+        """Process output from a testing agent."""
+        async with self._lock:
+            # Ensure testing agent is tracked
+            if self.TESTING_AGENT_KEY not in self.active_agents:
+                agent_index = self._next_agent_index
+                self._next_agent_index += 1
+                self.active_agents[self.TESTING_AGENT_KEY] = {
+                    'name': AGENT_MASCOTS[agent_index % len(AGENT_MASCOTS)],
+                    'agent_index': agent_index,
+                    'agent_type': 'testing',
+                    'state': 'testing',
+                    'feature_name': 'Regression Testing',
+                    'last_thought': None,
+                }
+
+            agent = self.active_agents[self.TESTING_AGENT_KEY]
+
+            # Detect state and thought from content
+            state = 'testing'
+            thought = None
+
+            for pattern, detected_state in THOUGHT_PATTERNS:
+                m = pattern.search(content)
+                if m:
+                    state = detected_state
+                    thought = m.group(1) if m.lastindex else content[:100]
+                    break
+
+            # Only emit update if state changed or we have a new thought
+            if state != agent['state'] or thought != agent['last_thought']:
+                agent['state'] = state
+                if thought:
+                    agent['last_thought'] = thought
+
+                return {
+                    'type': 'agent_update',
+                    'agentIndex': agent['agent_index'],
+                    'agentName': agent['name'],
+                    'agentType': 'testing',
+                    'featureId': 0,  # Testing agents work on random features
+                    'featureName': agent['feature_name'],
+                    'state': state,
+                    'thought': thought,
+                    'timestamp': datetime.now().isoformat(),
+                }
+
+        return None
+
+    async def _handle_testing_agent_start(self, line: str) -> dict | None:
+        """Handle testing agent start message from orchestrator."""
+        async with self._lock:
+            agent_index = self._next_agent_index
+            self._next_agent_index += 1
+
+            self.active_agents[self.TESTING_AGENT_KEY] = {
+                'name': AGENT_MASCOTS[agent_index % len(AGENT_MASCOTS)],
+                'agent_index': agent_index,
+                'agent_type': 'testing',
+                'state': 'testing',
+                'feature_name': 'Regression Testing',
+                'last_thought': 'Starting regression tests...',
+            }
+
+            return {
+                'type': 'agent_update',
+                'agentIndex': agent_index,
+                'agentName': AGENT_MASCOTS[agent_index % len(AGENT_MASCOTS)],
+                'agentType': 'testing',
+                'featureId': 0,
+                'featureName': 'Regression Testing',
+                'state': 'testing',
+                'thought': 'Starting regression tests...',
+                'timestamp': datetime.now().isoformat(),
+            }
+
+    async def _handle_testing_agent_complete(self, is_success: bool) -> dict | None:
+        """Handle testing agent completion."""
+        async with self._lock:
+            if self.TESTING_AGENT_KEY not in self.active_agents:
+                return None
+
+            agent = self.active_agents[self.TESTING_AGENT_KEY]
+            state = 'success' if is_success else 'error'
+
+            result = {
+                'type': 'agent_update',
+                'agentIndex': agent['agent_index'],
+                'agentName': agent['name'],
+                'agentType': 'testing',
+                'featureId': 0,
+                'featureName': agent['feature_name'],
+                'state': state,
+                'thought': 'Tests passed!' if is_success else 'Found regressions',
+                'timestamp': datetime.now().isoformat(),
+            }
+
+            # Remove from active agents
+            del self.active_agents[self.TESTING_AGENT_KEY]
+
+            return result
 
     def get_agent_info(self, feature_id: int) -> tuple[int | None, str | None]:
         """Get agent index and name for a feature ID.
@@ -139,7 +262,7 @@ class AgentTracker:
             return agent['agent_index'], agent['name']
         return None, None
 
-    async def _handle_agent_start(self, feature_id: int, line: str) -> dict | None:
+    async def _handle_agent_start(self, feature_id: int, line: str, agent_type: str = "coding") -> dict | None:
         """Handle agent start message from orchestrator."""
         async with self._lock:
             agent_index = self._next_agent_index
@@ -154,6 +277,7 @@ class AgentTracker:
             self.active_agents[feature_id] = {
                 'name': AGENT_MASCOTS[agent_index % len(AGENT_MASCOTS)],
                 'agent_index': agent_index,
+                'agent_type': agent_type,
                 'state': 'thinking',
                 'feature_name': feature_name,
                 'last_thought': 'Starting work...',
@@ -163,6 +287,7 @@ class AgentTracker:
                 'type': 'agent_update',
                 'agentIndex': agent_index,
                 'agentName': AGENT_MASCOTS[agent_index % len(AGENT_MASCOTS)],
+                'agentType': agent_type,
                 'featureId': feature_id,
                 'featureName': feature_name,
                 'state': 'thinking',
@@ -178,11 +303,13 @@ class AgentTracker:
 
             agent = self.active_agents[feature_id]
             state = 'success' if is_success else 'error'
+            agent_type = agent.get('agent_type', 'coding')
 
             result = {
                 'type': 'agent_update',
                 'agentIndex': agent['agent_index'],
                 'agentName': agent['name'],
+                'agentType': agent_type,
                 'featureId': feature_id,
                 'featureName': agent['feature_name'],
                 'state': state,

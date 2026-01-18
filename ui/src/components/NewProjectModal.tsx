@@ -129,7 +129,11 @@ export function NewProjectModal({
     // Auto-start the initializer agent
     setInitializerStatus('starting')
     try {
-      await startAgent(projectName.trim(), { yoloMode })
+      // Use default concurrency of 3 to match AgentControl.tsx default
+      await startAgent(projectName.trim(), {
+        yoloMode,
+        maxConcurrency: 3,
+      })
       // Success - navigate to project
       changeStep('complete')
       setTimeout(() => {

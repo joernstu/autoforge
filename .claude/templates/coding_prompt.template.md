@@ -48,38 +48,7 @@ chmod +x init.sh
 
 Otherwise, start servers manually and document the process.
 
-### STEP 3: VERIFICATION TEST (CRITICAL!)
-
-**MANDATORY BEFORE NEW WORK:**
-
-The previous session may have introduced bugs. Before implementing anything
-new, you MUST run verification tests.
-
-Run 1-2 of the features marked as passing that are most core to the app's functionality to verify they still work.
-
-To get passing features for regression testing:
-
-```
-Use the feature_get_for_regression tool (returns up to 3 random passing features)
-```
-
-For example, if this were a chat app, you should perform a test that logs into the app, sends a message, and gets a response.
-
-**If you find ANY issues (functional or visual):**
-
-- Mark that feature as "passes": false immediately
-- Add issues to a list
-- Fix all issues BEFORE moving to new features
-- This includes UI bugs like:
-  - White-on-white text or poor contrast
-  - Random characters displayed
-  - Incorrect timestamps
-  - Layout issues or overflow
-  - Buttons too close together
-  - Missing hover states
-  - Console errors
-
-### STEP 4: CHOOSE ONE FEATURE TO IMPLEMENT
+### STEP 3: CHOOSE ONE FEATURE TO IMPLEMENT
 
 #### TEST-DRIVEN DEVELOPMENT MINDSET (CRITICAL)
 
@@ -140,16 +109,16 @@ Use the feature_skip tool with feature_id={id}
 
 Document the SPECIFIC external blocker in `claude-progress.txt`. "Functionality not built" is NEVER a valid reason.
 
-### STEP 5: IMPLEMENT THE FEATURE
+### STEP 4: IMPLEMENT THE FEATURE
 
 Implement the chosen feature thoroughly:
 
 1. Write the code (frontend and/or backend as needed)
-2. Test manually using browser automation (see Step 6)
+2. Test manually using browser automation (see Step 5)
 3. Fix any issues discovered
 4. Verify the feature works end-to-end
 
-### STEP 6: VERIFY WITH BROWSER AUTOMATION
+### STEP 5: VERIFY WITH BROWSER AUTOMATION
 
 **CRITICAL:** You MUST verify features through the actual UI.
 
@@ -174,7 +143,7 @@ Use browser automation tools:
 - Skip visual verification
 - Mark tests passing without thorough verification
 
-### STEP 6.5: MANDATORY VERIFICATION CHECKLIST (BEFORE MARKING ANY TEST PASSING)
+### STEP 5.5: MANDATORY VERIFICATION CHECKLIST (BEFORE MARKING ANY TEST PASSING)
 
 **You MUST complete ALL of these checks before marking any feature as "passes": true**
 
@@ -209,7 +178,7 @@ Use browser automation tools:
 - [ ] Loading states appeared during API calls
 - [ ] Error states handle failures gracefully
 
-### STEP 6.6: MOCK DATA DETECTION SWEEP
+### STEP 5.6: MOCK DATA DETECTION SWEEP
 
 **Run this sweep AFTER EVERY FEATURE before marking it as passing:**
 
@@ -252,7 +221,7 @@ For API endpoints used by this feature:
 - Verify response contains actual database data
 - Empty database = empty response (not pre-populated mock data)
 
-### STEP 7: UPDATE FEATURE STATUS (CAREFULLY!)
+### STEP 6: UPDATE FEATURE STATUS (CAREFULLY!)
 
 **YOU CAN ONLY MODIFY ONE FIELD: "passes"**
 
@@ -273,7 +242,7 @@ Use the feature_mark_passing tool with feature_id=42
 
 **ONLY MARK A FEATURE AS PASSING AFTER VERIFICATION WITH SCREENSHOTS.**
 
-### STEP 8: COMMIT YOUR PROGRESS
+### STEP 7: COMMIT YOUR PROGRESS
 
 Make a descriptive git commit:
 
@@ -288,7 +257,7 @@ git commit -m "Implement [feature name] - verified end-to-end
 "
 ```
 
-### STEP 9: UPDATE PROGRESS NOTES
+### STEP 8: UPDATE PROGRESS NOTES
 
 Update `claude-progress.txt` with:
 
@@ -298,7 +267,7 @@ Update `claude-progress.txt` with:
 - What should be worked on next
 - Current completion status (e.g., "45/200 tests passing")
 
-### STEP 10: END SESSION CLEANLY
+### STEP 9: END SESSION CLEANLY
 
 Before context fills up:
 
@@ -374,11 +343,11 @@ feature_get_next
 # 3. Mark a feature as in-progress (call immediately after feature_get_next)
 feature_mark_in_progress with feature_id={id}
 
-# 4. Get up to 3 random passing features for regression testing
-feature_get_for_regression
-
-# 5. Mark a feature as passing (after verification)
+# 4. Mark a feature as passing (after verification)
 feature_mark_passing with feature_id={id}
+
+# 5. Mark a feature as failing (if you discover it's broken)
+feature_mark_failing with feature_id={id}
 
 # 6. Skip a feature (moves to end of queue) - ONLY when blocked by dependency
 feature_skip with feature_id={id}
@@ -436,7 +405,7 @@ This allows you to fully test email-dependent flows without needing external ema
 - **All navigation works - no 404s or broken links**
 
 **You have unlimited time.** Take as long as needed to get it right. The most important thing is that you
-leave the code base in a clean state before terminating the session (Step 10).
+leave the code base in a clean state before terminating the session (Step 9).
 
 ---
 

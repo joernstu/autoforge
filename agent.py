@@ -27,9 +27,9 @@ from progress import has_features, print_progress_summary, print_session_header
 from prompts import (
     copy_spec_to_project,
     get_coding_prompt,
-    get_coding_prompt_yolo,
     get_initializer_prompt,
     get_single_feature_prompt,
+    get_testing_prompt,
 )
 
 # Configuration
@@ -116,6 +116,7 @@ async def run_autonomous_agent(
     max_iterations: Optional[int] = None,
     yolo_mode: bool = False,
     feature_id: Optional[int] = None,
+    agent_type: Optional[str] = None,
 ) -> None:
     """
     Run the autonomous agent loop.
@@ -124,20 +125,21 @@ async def run_autonomous_agent(
         project_dir: Directory for the project
         model: Claude model to use
         max_iterations: Maximum number of iterations (None for unlimited)
-        yolo_mode: If True, skip browser testing and use YOLO prompt
-        feature_id: If set, work only on this specific feature (used by parallel orchestrator)
+        yolo_mode: If True, skip browser testing in coding agent prompts
+        feature_id: If set, work only on this specific feature (used by orchestrator for coding agents)
+        agent_type: Type of agent: "initializer", "coding", "testing", or None (auto-detect)
     """
     print("\n" + "=" * 70)
-    print("  AUTONOMOUS CODING AGENT DEMO")
+    print("  AUTONOMOUS CODING AGENT")
     print("=" * 70)
     print(f"\nProject directory: {project_dir}")
     print(f"Model: {model}")
+    if agent_type:
+        print(f"Agent type: {agent_type}")
     if yolo_mode:
-        print("Mode: YOLO (testing disabled)")
-    else:
-        print("Mode: Standard (full testing)")
+        print("Mode: YOLO (testing agents disabled)")
     if feature_id:
-        print(f"Single-feature mode: Feature #{feature_id}")
+        print(f"Feature assignment: #{feature_id}")
     if max_iterations:
         print(f"Max iterations: {max_iterations}")
     else:
@@ -147,24 +149,34 @@ async def run_autonomous_agent(
     # Create project directory
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    # Check if this is a fresh start or continuation
-    # Uses has_features() which checks if the database actually has features,
-    # not just if the file exists (empty db should still trigger initializer)
-    is_first_run = not has_features(project_dir)
+    # Determine agent type if not explicitly set
+    if agent_type is None:
+        # Auto-detect based on whether we have features
+        # (This path is for legacy compatibility - orchestrator should always set agent_type)
+        is_first_run = not has_features(project_dir)
+        if is_first_run:
+            agent_type = "initializer"
+        else:
+            agent_type = "coding"
 
-    if is_first_run:
-        print("Fresh start - will use initializer agent")
+    is_initializer = agent_type == "initializer"
+
+    if is_initializer:
+        print("Running as INITIALIZER agent")
         print()
         print("=" * 70)
-        print("  NOTE: First session takes 10-20+ minutes!")
-        print("  The agent is generating 200 detailed test cases.")
+        print("  NOTE: Initialization takes 10-20+ minutes!")
+        print("  The agent is generating detailed test cases.")
         print("  This may appear to hang - it's working. Watch for [Tool: ...] output.")
         print("=" * 70)
         print()
         # Copy the app spec into the project directory for the agent to read
         copy_spec_to_project(project_dir)
+    elif agent_type == "testing":
+        print("Running as TESTING agent (regression testing)")
+        print_progress_summary(project_dir)
     else:
-        print("Continuing existing project")
+        print("Running as CODING agent")
         print_progress_summary(project_dir)
 
     # Main loop
@@ -180,27 +192,30 @@ async def run_autonomous_agent(
             break
 
         # Print session header
-        print_session_header(iteration, is_first_run)
+        print_session_header(iteration, is_initializer)
 
         # Create client (fresh context)
-        # In single-feature mode, pass agent_id for browser isolation
-        agent_id = f"feature-{feature_id}" if feature_id else None
+        # Pass agent_id for browser isolation in multi-agent scenarios
+        import os
+        if agent_type == "testing":
+            agent_id = f"testing-{os.getpid()}"  # Unique ID for testing agents
+        elif feature_id:
+            agent_id = f"feature-{feature_id}"
+        else:
+            agent_id = None
         client = create_client(project_dir, model, yolo_mode=yolo_mode, agent_id=agent_id)
 
-        # Choose prompt based on session type
-        # Pass project_dir to enable project-specific prompts
-        if is_first_run:
+        # Choose prompt based on agent type
+        if agent_type == "initializer":
             prompt = get_initializer_prompt(project_dir)
-            is_first_run = False  # Only use initializer once
+        elif agent_type == "testing":
+            prompt = get_testing_prompt(project_dir)
         elif feature_id:
-            # Single-feature mode (used by parallel orchestrator)
+            # Single-feature mode (used by orchestrator for coding agents)
             prompt = get_single_feature_prompt(feature_id, project_dir, yolo_mode)
         else:
-            # Use YOLO prompt if in YOLO mode
-            if yolo_mode:
-                prompt = get_coding_prompt_yolo(project_dir)
-            else:
-                prompt = get_coding_prompt(project_dir)
+            # General coding prompt (legacy path)
+            prompt = get_coding_prompt(project_dir)
 
         # Run session with async context manager
         # Wrap in try/except to handle MCP server startup failures gracefully

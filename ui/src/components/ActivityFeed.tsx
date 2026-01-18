@@ -83,11 +83,30 @@ export function ActivityFeed({ activities, maxItems = 5, showHeader = true }: Ac
 
 function getMascotColor(name: AgentMascot): string {
   const colors: Record<AgentMascot, string> = {
+    // Original 5
     Spark: '#3B82F6',
     Fizz: '#F97316',
     Octo: '#8B5CF6',
     Hoot: '#22C55E',
     Buzz: '#EAB308',
+    // Tech-inspired
+    Pixel: '#EC4899',
+    Byte: '#06B6D4',
+    Nova: '#F43F5E',
+    Chip: '#84CC16',
+    Bolt: '#FBBF24',
+    // Energetic
+    Dash: '#14B8A6',
+    Zap: '#A855F7',
+    Gizmo: '#64748B',
+    Turbo: '#EF4444',
+    Blip: '#10B981',
+    // Playful
+    Neon: '#D946EF',
+    Widget: '#6366F1',
+    Zippy: '#F59E0B',
+    Quirk: '#0EA5E9',
+    Flux: '#7C3AED',
   }
   return colors[name] || '#6B7280'
 }

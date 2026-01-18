@@ -74,31 +74,30 @@ def get_coding_prompt(project_dir: Path | None = None) -> str:
     return load_prompt("coding_prompt", project_dir)
 
 
-def get_coding_prompt_yolo(project_dir: Path | None = None) -> str:
-    """Load the YOLO mode coding agent prompt (project-specific if available)."""
-    return load_prompt("coding_prompt_yolo", project_dir)
+def get_testing_prompt(project_dir: Path | None = None) -> str:
+    """Load the testing agent prompt (project-specific if available)."""
+    return load_prompt("testing_prompt", project_dir)
 
 
 def get_single_feature_prompt(feature_id: int, project_dir: Path | None = None, yolo_mode: bool = False) -> str:
     """
     Load the coding prompt with single-feature focus instructions prepended.
 
-    When the parallel orchestrator assigns a specific feature to an agent,
+    When the orchestrator assigns a specific feature to a coding agent,
     this prompt ensures the agent works ONLY on that feature.
 
     Args:
         feature_id: The specific feature ID to work on
         project_dir: Optional project directory for project-specific prompts
-        yolo_mode: If True, use the YOLO prompt variant
+        yolo_mode: Ignored (kept for backward compatibility). Testing is now
+                   handled by separate testing agents, not YOLO prompts.
 
     Returns:
         The prompt with single-feature instructions prepended
     """
-    # Get the base prompt
-    if yolo_mode:
-        base_prompt = get_coding_prompt_yolo(project_dir)
-    else:
-        base_prompt = get_coding_prompt(project_dir)
+    # Always use the standard coding prompt
+    # (Testing/regression is handled by separate testing agents)
+    base_prompt = get_coding_prompt(project_dir)
 
     # Prepend single-feature instructions
     single_feature_header = f"""## SINGLE FEATURE MODE
@@ -185,8 +184,8 @@ def scaffold_project_prompts(project_dir: Path) -> Path:
     templates = [
         ("app_spec.template.txt", "app_spec.txt"),
         ("coding_prompt.template.md", "coding_prompt.md"),
-        ("coding_prompt_yolo.template.md", "coding_prompt_yolo.md"),
         ("initializer_prompt.template.md", "initializer_prompt.md"),
+        ("testing_prompt.template.md", "testing_prompt.md"),
     ]
 
     copied_files = []

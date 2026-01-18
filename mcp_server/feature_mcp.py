@@ -11,6 +11,7 @@ Tools:
 - feature_get_next: Get next feature to implement
 - feature_get_for_regression: Get random passing features for testing
 - feature_mark_passing: Mark a feature as passing
+- feature_mark_failing: Mark a feature as failing (regression detected)
 - feature_skip: Skip a feature (move to end of queue)
 - feature_mark_in_progress: Mark a feature as in-progress
 - feature_clear_in_progress: Clear in-progress status
@@ -358,7 +359,8 @@ def feature_get_for_regression(
 ) -> str:
     """Get random passing features for regression testing.
 
-    Returns a random selection of features that are currently passing.
+    Returns a random selection of features that are currently passing
+    and NOT currently in progress (to avoid conflicts with coding agents).
     Use this to verify that previously implemented features still work
     after making changes.
 
@@ -373,6 +375,7 @@ def feature_get_for_regression(
         features = (
             session.query(Feature)
             .filter(Feature.passes == True)
+            .filter(Feature.in_progress == False)  # Avoid conflicts with coding agents
             .order_by(func.random())
             .limit(limit)
             .all()
@@ -414,6 +417,48 @@ def feature_mark_passing(
         session.refresh(feature)
 
         return json.dumps(feature.to_dict(), indent=2)
+    finally:
+        session.close()
+
+
+@mcp.tool()
+def feature_mark_failing(
+    feature_id: Annotated[int, Field(description="The ID of the feature to mark as failing", ge=1)]
+) -> str:
+    """Mark a feature as failing after finding a regression.
+
+    Updates the feature's passes field to false and clears the in_progress flag.
+    Use this when a testing agent discovers that a previously-passing feature
+    no longer works correctly (regression detected).
+
+    After marking as failing, you should:
+    1. Investigate the root cause
+    2. Fix the regression
+    3. Verify the fix
+    4. Call feature_mark_passing once fixed
+
+    Args:
+        feature_id: The ID of the feature to mark as failing
+
+    Returns:
+        JSON with the updated feature details, or error if not found.
+    """
+    session = get_session()
+    try:
+        feature = session.query(Feature).filter(Feature.id == feature_id).first()
+
+        if feature is None:
+            return json.dumps({"error": f"Feature with ID {feature_id} not found"})
+
+        feature.passes = False
+        feature.in_progress = False
+        session.commit()
+        session.refresh(feature)
+
+        return json.dumps({
+            "message": f"Feature #{feature_id} marked as failing - regression detected",
+            "feature": feature.to_dict()
+        }, indent=2)
     finally:
         session.close()
 

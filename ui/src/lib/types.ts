@@ -119,7 +119,7 @@ export interface FeatureUpdate {
 }
 
 // Agent types
-export type AgentStatus = 'stopped' | 'running' | 'paused' | 'crashed'
+export type AgentStatus = 'stopped' | 'running' | 'paused' | 'crashed' | 'loading'
 
 export interface AgentStatusResponse {
   status: AgentStatus
@@ -127,8 +127,10 @@ export interface AgentStatusResponse {
   started_at: string | null
   yolo_mode: boolean
   model: string | null  // Model being used by running agent
-  parallel_mode: boolean
+  parallel_mode: boolean  // DEPRECATED: Always true now (unified orchestrator)
   max_concurrency: number | null
+  testing_agent_ratio: number  // Testing agents per coding agent (0-3)
+  count_testing_in_concurrency: boolean  // Count testing toward concurrency limit
 }
 
 export interface AgentActionResponse {
@@ -171,11 +173,19 @@ export interface TerminalInfo {
 }
 
 // Agent mascot names for multi-agent UI
-export const AGENT_MASCOTS = ['Spark', 'Fizz', 'Octo', 'Hoot', 'Buzz'] as const
+export const AGENT_MASCOTS = [
+  'Spark', 'Fizz', 'Octo', 'Hoot', 'Buzz',    // Original 5
+  'Pixel', 'Byte', 'Nova', 'Chip', 'Bolt',    // Tech-inspired
+  'Dash', 'Zap', 'Gizmo', 'Turbo', 'Blip',    // Energetic
+  'Neon', 'Widget', 'Zippy', 'Quirk', 'Flux', // Playful
+] as const
 export type AgentMascot = typeof AGENT_MASCOTS[number]
 
 // Agent state for Mission Control
 export type AgentState = 'idle' | 'thinking' | 'working' | 'testing' | 'success' | 'error' | 'struggling'
+
+// Agent type (coding vs testing)
+export type AgentType = 'coding' | 'testing'
 
 // Individual log entry for an agent
 export interface AgentLogEntry {
@@ -188,6 +198,7 @@ export interface AgentLogEntry {
 export interface ActiveAgent {
   agentIndex: number
   agentName: AgentMascot
+  agentType: AgentType  // "coding" or "testing"
   featureId: number
   featureName: string
   state: AgentState
@@ -226,6 +237,7 @@ export interface WSAgentUpdateMessage {
   type: 'agent_update'
   agentIndex: number
   agentName: AgentMascot
+  agentType: AgentType  // "coding" or "testing"
   featureId: number
   featureName: string
   state: AgentState
@@ -467,9 +479,13 @@ export interface Settings {
   yolo_mode: boolean
   model: string
   glm_mode: boolean
+  testing_agent_ratio: number  // Testing agents per coding agent (0-3)
+  count_testing_in_concurrency: boolean  // Count testing toward concurrency limit
 }
 
 export interface SettingsUpdate {
   yolo_mode?: boolean
   model?: string
+  testing_agent_ratio?: number
+  count_testing_in_concurrency?: boolean
 }

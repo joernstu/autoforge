@@ -57,7 +57,7 @@ const MAX_AGENT_LOGS = 500 // Keep last 500 log lines per agent
 export function useProjectWebSocket(projectName: string | null) {
   const [state, setState] = useState<WebSocketState>({
     progress: { passing: 0, in_progress: 0, total: 0, percentage: 0 },
-    agentStatus: 'stopped',
+    agentStatus: 'loading',
     logs: [],
     isConnected: false,
     devServerStatus: 'stopped',
@@ -188,6 +188,7 @@ export function useProjectWebSocket(projectName: string | null) {
                   newAgents[existingAgentIdx] = {
                     agentIndex: message.agentIndex,
                     agentName: message.agentName,
+                    agentType: message.agentType || 'coding',  // Default to coding for backwards compat
                     featureId: message.featureId,
                     featureName: message.featureName,
                     state: message.state,
@@ -202,6 +203,7 @@ export function useProjectWebSocket(projectName: string | null) {
                     {
                       agentIndex: message.agentIndex,
                       agentName: message.agentName,
+                      agentType: message.agentType || 'coding',  // Default to coding for backwards compat
                       featureId: message.featureId,
                       featureName: message.featureName,
                       state: message.state,
@@ -328,9 +330,10 @@ export function useProjectWebSocket(projectName: string | null) {
   // Connect when project changes
   useEffect(() => {
     // Reset state when project changes to clear stale data
+    // Use 'loading' for agentStatus to show loading indicator until WebSocket provides actual status
     setState({
       progress: { passing: 0, in_progress: 0, total: 0, percentage: 0 },
-      agentStatus: 'stopped',
+      agentStatus: 'loading',
       logs: [],
       isConnected: false,
       devServerStatus: 'stopped',

@@ -26,10 +26,22 @@ which is the single source of truth for what needs to be built.
 
 **Creating Features:**
 
-Use the feature_create_bulk tool to add all features at once:
+Use the feature_create_bulk tool to add all features at once. Note: You MUST include `depends_on_indices`
+to specify dependencies. Features with no dependencies can run first and enable parallel execution.
 
 ```
 Use the feature_create_bulk tool with features=[
+  {
+    "category": "functional",
+    "name": "App loads without errors",
+    "description": "Application starts and renders homepage",
+    "steps": [
+      "Step 1: Navigate to homepage",
+      "Step 2: Verify no console errors",
+      "Step 3: Verify main content renders"
+    ]
+    // No depends_on_indices = FOUNDATION feature (runs first)
+  },
   {
     "category": "functional",
     "name": "User can create an account",
@@ -38,7 +50,8 @@ Use the feature_create_bulk tool with features=[
       "Step 1: Navigate to registration page",
       "Step 2: Fill in required fields",
       "Step 3: Submit form and verify account created"
-    ]
+    ],
+    "depends_on_indices": [0]  // Depends on app loading
   },
   {
     "category": "functional",
@@ -49,7 +62,7 @@ Use the feature_create_bulk tool with features=[
       "Step 2: Enter credentials",
       "Step 3: Verify successful login and redirect"
     ],
-    "depends_on_indices": [0]
+    "depends_on_indices": [0, 1]  // Depends on app loading AND registration
   },
   {
     "category": "functional",
@@ -60,7 +73,18 @@ Use the feature_create_bulk tool with features=[
       "Step 2: Navigate to dashboard",
       "Step 3: Verify personalized content displays"
     ],
-    "depends_on_indices": [1]
+    "depends_on_indices": [2]  // Depends on login only
+  },
+  {
+    "category": "functional",
+    "name": "User can update profile",
+    "description": "User can modify their profile information",
+    "steps": [
+      "Step 1: Log in as user",
+      "Step 2: Navigate to profile settings",
+      "Step 3: Update and save profile"
+    ],
+    "depends_on_indices": [2]  // ALSO depends on login (WIDE GRAPH - can run parallel with dashboard!)
   }
 ]
 ```
@@ -69,7 +93,15 @@ Use the feature_create_bulk tool with features=[
 - IDs and priorities are assigned automatically based on order
 - All features start with `passes: false` by default
 - You can create features in batches if there are many (e.g., 50 at a time)
-- Use `depends_on_indices` to specify dependencies (see FEATURE DEPENDENCIES section below)
+- **CRITICAL:** Use `depends_on_indices` to specify dependencies (see FEATURE DEPENDENCIES section below)
+
+**DEPENDENCY REQUIREMENT:**
+You MUST specify dependencies using `depends_on_indices` for features that logically depend on others.
+- Features 0-9 should have NO dependencies (foundation/setup features)
+- Features 10+ MUST have at least some dependencies where logical
+- Create WIDE dependency graphs, not linear chains:
+  - BAD:  A -> B -> C -> D -> E (linear chain, only 1 feature can run at a time)
+  - GOOD: A -> B, A -> C, A -> D, B -> E, C -> E (wide graph, multiple features can run in parallel)
 
 **Requirements for features:**
 
@@ -88,9 +120,18 @@ Use the feature_create_bulk tool with features=[
 
 ---
 
-## FEATURE DEPENDENCIES
+## FEATURE DEPENDENCIES (MANDATORY)
+
+**THIS SECTION IS MANDATORY. You MUST specify dependencies for features.**
 
 Dependencies enable **parallel execution** of independent features. When you specify dependencies correctly, multiple agents can work on unrelated features simultaneously, dramatically speeding up development.
+
+**WARNING:** If you do not specify dependencies, ALL features will be ready immediately, which:
+1. Overwhelms the parallel agents trying to work on unrelated features
+2. Results in features being implemented in random order
+3. Causes logical issues (e.g., "Edit user" attempted before "Create user")
+
+You MUST analyze each feature and specify its dependencies using `depends_on_indices`.
 
 ### Why Dependencies Matter
 
@@ -137,34 +178,63 @@ Since feature IDs aren't assigned until after creation, use **array indices** (0
 
 1. **Start with foundation features** (index 0-10): Core setup, basic navigation, authentication
 2. **Group related features together**: Keep CRUD operations adjacent
-3. **Chain complex flows**: Registration → Login → Dashboard → Settings
+3. **Chain complex flows**: Registration -> Login -> Dashboard -> Settings
 4. **Keep dependencies shallow**: Prefer 1-2 dependencies over deep chains
 5. **Skip dependencies for independent features**: Visual tests often have no dependencies
 
-### Example: Todo App Feature Chain
+### Minimum Dependency Coverage
+
+**REQUIREMENT:** At least 60% of your features (after index 10) should have at least one dependency.
+
+Target structure for a 150-feature project:
+- Features 0-9: Foundation (0 dependencies) - App loads, basic setup
+- Features 10-149: At least 84 should have dependencies (60% of 140)
+
+This ensures:
+- A good mix of parallelizable features (foundation)
+- Logical ordering for dependent features
+
+### Example: Todo App Feature Chain (Wide Graph Pattern)
+
+This example shows the CORRECT wide graph pattern where multiple features share the same dependency,
+enabling parallel execution:
 
 ```json
 [
-  // Foundation (no dependencies)
+  // FOUNDATION TIER (indices 0-2, no dependencies)
+  // These run first and enable everything else
   { "name": "App loads without errors", "category": "functional" },
   { "name": "Navigation bar displays", "category": "style" },
+  { "name": "Homepage renders correctly", "category": "functional" },
 
-  // Auth chain
+  // AUTH TIER (indices 3-5, depend on foundation)
+  // These can all run in parallel once foundation passes
   { "name": "User can register", "depends_on_indices": [0] },
-  { "name": "User can login", "depends_on_indices": [2] },
-  { "name": "User can logout", "depends_on_indices": [3] },
+  { "name": "User can login", "depends_on_indices": [0, 3] },
+  { "name": "User can logout", "depends_on_indices": [4] },
 
-  // Todo CRUD (depends on auth)
-  { "name": "User can create todo", "depends_on_indices": [3] },
-  { "name": "User can view todos", "depends_on_indices": [5] },
-  { "name": "User can edit todo", "depends_on_indices": [5] },
-  { "name": "User can delete todo", "depends_on_indices": [5] },
+  // CORE CRUD TIER (indices 6-9, depend on auth)
+  // WIDE GRAPH: All 4 of these depend on login (index 4)
+  // This means all 4 can start as soon as login passes!
+  { "name": "User can create todo", "depends_on_indices": [4] },
+  { "name": "User can view todos", "depends_on_indices": [4] },
+  { "name": "User can edit todo", "depends_on_indices": [4, 6] },
+  { "name": "User can delete todo", "depends_on_indices": [4, 6] },
 
-  // Advanced features (multiple dependencies)
-  { "name": "User can filter todos", "depends_on_indices": [6] },
-  { "name": "User can search todos", "depends_on_indices": [6] }
+  // ADVANCED TIER (indices 10-11, depend on CRUD)
+  // Note: filter and search both depend on view (7), not on each other
+  { "name": "User can filter todos", "depends_on_indices": [7] },
+  { "name": "User can search todos", "depends_on_indices": [7] }
 ]
 ```
+
+**Parallelism analysis of this example:**
+- Foundation tier: 3 features can run in parallel
+- Auth tier: 3 features wait for foundation, then can run (mostly parallel)
+- CRUD tier: 4 features can start once login passes (all 4 in parallel!)
+- Advanced tier: 2 features can run once view passes (both in parallel)
+
+**Result:** With 3 parallel agents, this 12-feature project completes in ~5-6 cycles instead of 12 sequential cycles.
 
 ---
 
@@ -585,32 +655,16 @@ Set up the basic project structure based on what's specified in `app_spec.txt`.
 This typically includes directories for frontend, backend, and any other
 components mentioned in the spec.
 
-### OPTIONAL: Start Implementation
-
-If you have time remaining in this session, you may begin implementing
-the highest-priority features. Get the next feature with:
-
-```
-Use the feature_get_next tool
-```
-
-Remember:
-- Work on ONE feature at a time
-- Test thoroughly before marking as passing
-- Commit your progress before session ends
-
 ### ENDING THIS SESSION
 
-Before your context fills up:
+Once you have completed the four tasks above:
 
-1. Commit all work with descriptive messages
-2. Create `claude-progress.txt` with a summary of what you accomplished
-3. Verify features were created using the feature_get_stats tool
-4. Leave the environment in a clean, working state
+1. Commit all work with a descriptive message
+2. Verify features were created using the feature_get_stats tool
+3. Leave the environment in a clean, working state
+4. Exit cleanly
 
-The next agent will continue from here with a fresh context window.
-
----
-
-**Remember:** You have unlimited time across many sessions. Focus on
-quality over speed. Production-ready is the goal.
+**IMPORTANT:** Do NOT attempt to implement any features. Your job is setup only.
+Feature implementation will be handled by parallel coding agents that spawn after
+you complete initialization. Starting implementation here would create a bottleneck
+and defeat the purpose of the parallel architecture.

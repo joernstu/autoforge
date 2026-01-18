@@ -4,8 +4,10 @@ Autonomous Coding Agent Demo
 ============================
 
 A minimal harness demonstrating long-running autonomous coding with Claude.
-This script implements the two-agent pattern (initializer + coding agent) and
-incorporates all the strategies from the long-running agents guide.
+This script implements a unified orchestrator pattern that handles:
+- Initialization (creating features from app_spec)
+- Coding agents (implementing features)
+- Testing agents (regression testing)
 
 Example Usage:
     # Using absolute path directly
@@ -14,17 +16,22 @@ Example Usage:
     # Using registered project name (looked up from registry)
     python autonomous_agent_demo.py --project-dir my-app
 
-    # Limit iterations for testing
+    # Limit iterations for testing (when running as subprocess)
     python autonomous_agent_demo.py --project-dir my-app --max-iterations 5
 
-    # YOLO mode: rapid prototyping without browser testing
+    # YOLO mode: rapid prototyping without testing agents
     python autonomous_agent_demo.py --project-dir my-app --yolo
 
-    # Parallel execution with 3 concurrent agents (default)
-    python autonomous_agent_demo.py --project-dir my-app --parallel
+    # Parallel execution with 3 concurrent coding agents
+    python autonomous_agent_demo.py --project-dir my-app --concurrency 3
 
-    # Parallel execution with 5 concurrent agents
-    python autonomous_agent_demo.py --project-dir my-app --parallel 5
+    # Single agent mode (orchestrator with concurrency=1, the default)
+    python autonomous_agent_demo.py --project-dir my-app
+
+    # Run as specific agent type (used by orchestrator to spawn subprocesses)
+    python autonomous_agent_demo.py --project-dir my-app --agent-type initializer
+    python autonomous_agent_demo.py --project-dir my-app --agent-type coding --feature-id 42
+    python autonomous_agent_demo.py --project-dir my-app --agent-type testing
 """
 
 import argparse
@@ -44,24 +51,27 @@ from registry import DEFAULT_MODEL, get_project_path
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Autonomous Coding Agent Demo - Long-running agent harness",
+        description="Autonomous Coding Agent Demo - Unified orchestrator pattern",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Use absolute path directly
+  # Use absolute path directly (single agent, default)
   python autonomous_agent_demo.py --project-dir C:/Projects/my-app
 
   # Use registered project name (looked up from registry)
   python autonomous_agent_demo.py --project-dir my-app
 
-  # Use a specific model
-  python autonomous_agent_demo.py --project-dir my-app --model claude-sonnet-4-5-20250929
+  # Parallel execution with 3 concurrent agents
+  python autonomous_agent_demo.py --project-dir my-app --concurrency 3
 
-  # Limit iterations for testing
-  python autonomous_agent_demo.py --project-dir my-app --max-iterations 5
-
-  # YOLO mode: rapid prototyping without browser testing
+  # YOLO mode: rapid prototyping without testing agents
   python autonomous_agent_demo.py --project-dir my-app --yolo
+
+  # Configure testing agent ratio (2 testing agents per coding agent)
+  python autonomous_agent_demo.py --project-dir my-app --testing-ratio 2
+
+  # Disable testing agents (similar to YOLO but with verification)
+  python autonomous_agent_demo.py --project-dir my-app --testing-ratio 0
 
 Authentication:
   Uses Claude CLI authentication (run 'claude login' if not logged in)
@@ -80,7 +90,7 @@ Authentication:
         "--max-iterations",
         type=int,
         default=None,
-        help="Maximum number of agent iterations (default: unlimited)",
+        help="Maximum number of agent iterations (default: unlimited, typically 1 for subprocesses)",
     )
 
     parser.add_argument(
@@ -94,25 +104,56 @@ Authentication:
         "--yolo",
         action="store_true",
         default=False,
-        help="Enable YOLO mode: rapid prototyping without browser testing",
+        help="Enable YOLO mode: skip testing agents for rapid prototyping",
     )
 
+    # Unified orchestrator mode (replaces --parallel)
     parser.add_argument(
-        "--parallel",
-        "-p",
+        "--concurrency", "-c",
+        type=int,
+        default=1,
+        help="Number of concurrent coding agents (default: 1, max: 5)",
+    )
+
+    # Backward compatibility: --parallel is deprecated alias for --concurrency
+    parser.add_argument(
+        "--parallel", "-p",
         type=int,
         nargs="?",
         const=3,
         default=None,
         metavar="N",
-        help="Enable parallel execution with N concurrent agents (default: 3, max: 5)",
+        help="DEPRECATED: Use --concurrency instead. Alias for --concurrency.",
     )
 
     parser.add_argument(
         "--feature-id",
         type=int,
         default=None,
-        help="Work on a specific feature ID only (used by parallel orchestrator)",
+        help="Work on a specific feature ID only (used by orchestrator for coding agents)",
+    )
+
+    # Agent type for subprocess mode
+    parser.add_argument(
+        "--agent-type",
+        choices=["initializer", "coding", "testing"],
+        default=None,
+        help="Agent type (used by orchestrator to spawn specialized subprocesses)",
+    )
+
+    # Testing agent configuration
+    parser.add_argument(
+        "--testing-ratio",
+        type=int,
+        default=1,
+        help="Testing agents per coding agent (0-3, default: 1). Set to 0 to disable testing agents.",
+    )
+
+    parser.add_argument(
+        "--count-testing",
+        action="store_true",
+        default=False,
+        help="Count testing agents toward concurrency limit (default: false)",
     )
 
     return parser.parse_args()
@@ -120,10 +161,16 @@ Authentication:
 
 def main() -> None:
     """Main entry point."""
+    print("[ENTRY] autonomous_agent_demo.py starting...", flush=True)
     args = parse_args()
 
     # Note: Authentication is handled by start.bat/start.sh before this script runs.
     # The Claude SDK auto-detects credentials from ~/.claude/.credentials.json
+
+    # Handle deprecated --parallel flag
+    if args.parallel is not None:
+        print("WARNING: --parallel is deprecated. Use --concurrency instead.", flush=True)
+        args.concurrency = args.parallel
 
     # Resolve project directory:
     # 1. If absolute path, use as-is
@@ -147,28 +194,35 @@ def main() -> None:
             return
 
     try:
-        if args.parallel is not None:
-            # Parallel execution mode
-            from parallel_orchestrator import run_parallel_orchestrator
-
-            print(f"Running in parallel mode with {args.parallel} concurrent agents")
-            asyncio.run(
-                run_parallel_orchestrator(
-                    project_dir=project_dir,
-                    max_concurrency=args.parallel,
-                    model=args.model,
-                    yolo_mode=args.yolo,
-                )
-            )
-        else:
-            # Standard single-agent mode (MCP server handles feature database)
+        if args.agent_type:
+            # Subprocess mode - spawned by orchestrator for a specific role
             asyncio.run(
                 run_autonomous_agent(
                     project_dir=project_dir,
                     model=args.model,
-                    max_iterations=args.max_iterations,
+                    max_iterations=args.max_iterations or 1,
                     yolo_mode=args.yolo,
                     feature_id=args.feature_id,
+                    agent_type=args.agent_type,
+                )
+            )
+        else:
+            # Entry point mode - always use unified orchestrator
+            from parallel_orchestrator import run_parallel_orchestrator
+
+            # Clamp concurrency to valid range (1-5)
+            concurrency = max(1, min(args.concurrency, 5))
+            if concurrency != args.concurrency:
+                print(f"Clamping concurrency to valid range: {concurrency}", flush=True)
+
+            asyncio.run(
+                run_parallel_orchestrator(
+                    project_dir=project_dir,
+                    max_concurrency=concurrency,
+                    model=args.model,
+                    yolo_mode=args.yolo,
+                    testing_agent_ratio=args.testing_ratio,
+                    count_testing_in_concurrency=args.count_testing,
                 )
             )
     except KeyboardInterrupt:

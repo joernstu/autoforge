@@ -1,6 +1,7 @@
 # Agent-generated output directories
 generations/
 automaker/
+temp/
 
 nul
 issues/

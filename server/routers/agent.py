@@ -26,8 +26,12 @@ def _get_project_path(project_name: str) -> Path:
     return get_project_path(project_name)
 
 
-def _get_settings_defaults() -> tuple[bool, str]:
-    """Get YOLO mode and model defaults from global settings."""
+def _get_settings_defaults() -> tuple[bool, str, int, bool]:
+    """Get defaults from global settings.
+
+    Returns:
+        Tuple of (yolo_mode, model, testing_agent_ratio, count_testing_in_concurrency)
+    """
     import sys
     root = Path(__file__).parent.parent.parent
     if str(root) not in sys.path:
@@ -38,7 +42,16 @@ def _get_settings_defaults() -> tuple[bool, str]:
     settings = get_all_settings()
     yolo_mode = (settings.get("yolo_mode") or "false").lower() == "true"
     model = settings.get("model", DEFAULT_MODEL)
-    return yolo_mode, model
+
+    # Parse testing agent settings with defaults
+    try:
+        testing_agent_ratio = int(settings.get("testing_agent_ratio", "1"))
+    except (ValueError, TypeError):
+        testing_agent_ratio = 1
+
+    count_testing = (settings.get("count_testing_in_concurrency") or "false").lower() == "true"
+
+    return yolo_mode, model, testing_agent_ratio, count_testing
 
 
 router = APIRouter(prefix="/api/projects/{project_name}/agent", tags=["agent"])
@@ -87,6 +100,8 @@ async def get_agent_status(project_name: str):
         model=manager.model,
         parallel_mode=manager.parallel_mode,
         max_concurrency=manager.max_concurrency,
+        testing_agent_ratio=manager.testing_agent_ratio,
+        count_testing_in_concurrency=manager.count_testing_in_concurrency,
     )
 
 
@@ -99,17 +114,20 @@ async def start_agent(
     manager = get_project_manager(project_name)
 
     # Get defaults from global settings if not provided in request
-    default_yolo, default_model = _get_settings_defaults()
+    default_yolo, default_model, default_testing_ratio, default_count_testing = _get_settings_defaults()
+
     yolo_mode = request.yolo_mode if request.yolo_mode is not None else default_yolo
     model = request.model if request.model else default_model
-    parallel_mode = request.parallel_mode or False
-    max_concurrency = request.max_concurrency
+    max_concurrency = request.max_concurrency or 1
+    testing_agent_ratio = request.testing_agent_ratio if request.testing_agent_ratio is not None else default_testing_ratio
+    count_testing = request.count_testing_in_concurrency if request.count_testing_in_concurrency is not None else default_count_testing
 
     success, message = await manager.start(
         yolo_mode=yolo_mode,
         model=model,
-        parallel_mode=parallel_mode,
         max_concurrency=max_concurrency,
+        testing_agent_ratio=testing_agent_ratio,
+        count_testing_in_concurrency=count_testing,
     )
 
     return AgentActionResponse(
