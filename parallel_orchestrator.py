@@ -412,9 +412,16 @@ class ParallelOrchestrator:
         if not success:
             return False, message
 
-        # NOTE: Testing agents are spawned in _on_agent_complete() after a coding agent
-        # succeeds, not here. This ensures we only spawn testing agents when there are
-        # actually passing features to test.
+        # Spawn ONE testing agent when coding agent STARTS (if not YOLO mode and passing features exist)
+        # Testing agents exit after one test, so we spawn fresh ones with each coding agent start
+        if not self.yolo_mode and self.testing_agent_ratio > 0:
+            passing_count = self.get_passing_count()
+            if passing_count > 0:
+                print(f"[DEBUG] Coding agent started, spawning testing agent (passing_count={passing_count})", flush=True)
+                debug_log.log("TESTING", "Spawning testing agent on coding agent start",
+                    feature_id=feature_id,
+                    passing_count=passing_count)
+                self._spawn_testing_agent()
 
         return True, f"Started feature {feature_id}"
 
@@ -724,23 +731,8 @@ class ParallelOrchestrator:
         # CRITICAL: This print triggers the WebSocket to emit agent_update with state='error' or 'success'
         print(f"Feature #{feature_id} {status}", flush=True)
 
-        # Spawn testing agents after successful coding agent completion
-        # This is the correct place to spawn testing agents - after we know there are
-        # passing features (the one this agent just completed, plus any previous ones)
-        if return_code == 0 and not self.yolo_mode and self.testing_agent_ratio > 0:
-            passing_count = self.get_passing_count()
-            print(f"[DEBUG] Coding agent completed successfully, passing_count={passing_count}", flush=True)
-            debug_log.log("TESTING", "Checking if testing agents should spawn",
-                yolo_mode=self.yolo_mode,
-                testing_agent_ratio=self.testing_agent_ratio,
-                passing_count=passing_count)
-            if passing_count > 0:
-                print(f"[DEBUG] Spawning testing agents (ratio={self.testing_agent_ratio})", flush=True)
-                debug_log.log("TESTING", f"Spawning {self.testing_agent_ratio} testing agent(s)")
-                self._spawn_testing_agents()
-        elif return_code == 0:
-            debug_log.log("TESTING", "Skipping testing agents",
-                reason="yolo_mode" if self.yolo_mode else f"ratio={self.testing_agent_ratio}")
+        # NOTE: Testing agents are now spawned in start_feature() when coding agents START,
+        # not here when they complete. This ensures 1:1 ratio and proper termination.
 
     def stop_feature(self, feature_id: int) -> tuple[bool, str]:
         """Stop a running coding agent and all its child processes."""

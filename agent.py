@@ -306,9 +306,12 @@ async def run_autonomous_agent(
                 print("The autonomous agent has finished its work.")
                 break
 
-            # Single-feature mode: exit after one session (orchestrator manages agents)
-            if feature_id is not None:
-                print(f"\nSingle-feature mode: Feature #{feature_id} session complete.")
+            # Single-feature mode OR testing agent: exit after one session
+            if feature_id is not None or agent_type == "testing":
+                if agent_type == "testing":
+                    print("\nTesting agent complete. Terminating session.")
+                else:
+                    print(f"\nSingle-feature mode: Feature #{feature_id} session complete.")
                 break
 
             await asyncio.sleep(delay_seconds)
