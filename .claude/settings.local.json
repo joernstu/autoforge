@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(copy \"C:\\\\Projects\\\\autocoder\\\\assets\\\\ollama.png\" \"C:\\\\Projects\\\\autocoder\\\\ui\\\\public\\\\ollama.png\")",
-      "Bash(npm run build:*)"
-    ]
-  }
-}
