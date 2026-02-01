@@ -13,7 +13,6 @@ import { SetupWizard } from './components/SetupWizard'
 import { AddFeatureForm } from './components/AddFeatureForm'
 import { FeatureModal } from './components/FeatureModal'
 import { DebugLogViewer, type TabType } from './components/DebugLogViewer'
-import { AgentThought } from './components/AgentThought'
 import { AgentMissionControl } from './components/AgentMissionControl'
 import { CelebrationOverlay } from './components/CelebrationOverlay'
 import { AssistantFAB } from './components/AssistantFAB'
@@ -390,6 +389,8 @@ function App() {
               total={progress.total}
               percentage={progress.percentage}
               isConnected={wsState.isConnected}
+              logs={wsState.activeAgents.length === 0 ? wsState.logs : undefined}
+              agentStatus={wsState.activeAgents.length === 0 ? wsState.agentStatus : undefined}
             />
 
             {/* Agent Mission Control - shows orchestrator status and active agents in parallel mode */}
@@ -400,13 +401,6 @@ function App() {
               getAgentLogs={wsState.getAgentLogs}
             />
 
-            {/* Agent Thought - shows latest agent narrative (single agent mode) */}
-            {wsState.activeAgents.length === 0 && (
-              <AgentThought
-                logs={wsState.logs}
-                agentStatus={wsState.agentStatus}
-              />
-            )}
 
             {/* Initializing Features State - show when agent is running but no features yet */}
             {features &&
