@@ -21,7 +21,7 @@ from ..services.spec_chat_session import (
     remove_session,
 )
 from ..utils.project_helpers import get_project_path as _get_project_path
-from ..utils.validation import is_valid_project_name as validate_project_name
+from ..utils.validation import is_valid_project_name, validate_project_name
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ async def list_spec_sessions():
 @router.get("/sessions/{project_name}", response_model=SpecSessionStatus)
 async def get_session_status(project_name: str):
     """Get status of a spec creation session."""
-    if not validate_project_name(project_name):
+    if not is_valid_project_name(project_name):
         raise HTTPException(status_code=400, detail="Invalid project name")
 
     session = get_session(project_name)
@@ -67,7 +67,7 @@ async def get_session_status(project_name: str):
 @router.delete("/sessions/{project_name}")
 async def cancel_session(project_name: str):
     """Cancel and remove a spec creation session."""
-    if not validate_project_name(project_name):
+    if not is_valid_project_name(project_name):
         raise HTTPException(status_code=400, detail="Invalid project name")
 
     session = get_session(project_name)
@@ -95,7 +95,7 @@ async def get_spec_file_status(project_name: str):
     This is used for polling to detect when Claude has finished writing spec files.
     Claude writes this status file as the final step after completing all spec work.
     """
-    if not validate_project_name(project_name):
+    if not is_valid_project_name(project_name):
         raise HTTPException(status_code=400, detail="Invalid project name")
 
     project_dir = _get_project_path(project_name)

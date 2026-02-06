@@ -26,7 +26,7 @@ from ..services.assistant_database import (
     get_conversations,
 )
 from ..utils.project_helpers import get_project_path as _get_project_path
-from ..utils.validation import is_valid_project_name as validate_project_name
+from ..utils.validation import validate_project_name
 
 logger = logging.getLogger(__name__)
 
