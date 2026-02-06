@@ -390,8 +390,11 @@ def run_agent(project_name: str, project_dir: Path) -> None:
     print(f"Location: {project_dir}")
     print("-" * 50)
 
-    # Build the command - pass absolute path
-    cmd = [sys.executable, "autonomous_agent_demo.py", "--project-dir", str(project_dir.resolve())]
+    # Build the command - pass absolute path and model from settings
+    from registry import DEFAULT_MODEL, get_all_settings
+    settings = get_all_settings()
+    model = settings.get("api_model") or settings.get("model", DEFAULT_MODEL)
+    cmd = [sys.executable, "autonomous_agent_demo.py", "--project-dir", str(project_dir.resolve()), "--model", model]
 
     # Run the agent with stderr capture to detect auth errors
     # stdout goes directly to terminal for real-time output

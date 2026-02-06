@@ -44,8 +44,10 @@ from dotenv import load_dotenv
 # IMPORTANT: Must be called BEFORE importing other modules that read env vars at load time
 load_dotenv()
 
+import os
+
 from agent import run_autonomous_agent
-from registry import DEFAULT_MODEL, get_project_path
+from registry import DEFAULT_MODEL, get_effective_sdk_env, get_project_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -194,6 +196,14 @@ def main() -> None:
 
     # Note: Authentication is handled by start.bat/start.sh before this script runs.
     # The Claude SDK auto-detects credentials from ~/.claude/.credentials.json
+
+    # Apply UI-configured provider settings to this process's environment.
+    # This ensures CLI-launched agents respect Settings UI provider config (GLM, Ollama, etc.).
+    # Uses setdefault so explicit env vars / .env file take precedence.
+    sdk_overrides = get_effective_sdk_env()
+    for key, value in sdk_overrides.items():
+        if value:  # Only set non-empty values (empty values are used to clear conflicts)
+            os.environ.setdefault(key, value)
 
     # Handle deprecated --parallel flag
     if args.parallel is not None:

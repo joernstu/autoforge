@@ -16,7 +16,6 @@ from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from claude_agent_sdk.types import HookContext, HookInput, HookMatcher, SyncHookJSONOutput
 from dotenv import load_dotenv
 
-from env_constants import API_ENV_VARS
 from security import SENSITIVE_DIRECTORIES, bash_security_hook
 
 # Load environment variables from .env file if present
@@ -450,14 +449,11 @@ def create_client(
         }
 
     # Build environment overrides for API endpoint configuration
-    # These override system env vars for the Claude CLI subprocess,
-    # allowing AutoForge to use alternative APIs (e.g., GLM) without
-    # affecting the user's global Claude Code settings
-    sdk_env = {}
-    for var in API_ENV_VARS:
-        value = os.getenv(var)
-        if value:
-            sdk_env[var] = value
+    # Uses get_effective_sdk_env() which reads provider settings from the database,
+    # ensuring UI-configured alternative providers (GLM, Ollama, Kimi, Custom) propagate
+    # correctly to the Claude CLI subprocess
+    from registry import get_effective_sdk_env
+    sdk_env = get_effective_sdk_env()
 
     # Detect alternative API mode (Ollama, GLM, or Vertex AI)
     base_url = sdk_env.get("ANTHROPIC_BASE_URL", "")

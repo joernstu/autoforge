@@ -731,7 +731,22 @@ def get_effective_sdk_env() -> dict[str, str]:
                 sdk_env[var] = value
         return sdk_env
 
-    sdk_env = {}
+    sdk_env: dict[str, str] = {}
+
+    # Explicitly clear credentials that could leak from the server process env.
+    # For providers using ANTHROPIC_AUTH_TOKEN (GLM, Custom), clear ANTHROPIC_API_KEY.
+    # For providers using ANTHROPIC_API_KEY (Kimi), clear ANTHROPIC_AUTH_TOKEN.
+    # This prevents the Claude CLI from using the wrong credentials.
+    auth_env_var = provider.get("auth_env_var", "ANTHROPIC_AUTH_TOKEN")
+    if auth_env_var == "ANTHROPIC_AUTH_TOKEN":
+        sdk_env["ANTHROPIC_API_KEY"] = ""
+    elif auth_env_var == "ANTHROPIC_API_KEY":
+        sdk_env["ANTHROPIC_AUTH_TOKEN"] = ""
+
+    # Clear Vertex AI vars when using non-Vertex alternative providers
+    sdk_env["CLAUDE_CODE_USE_VERTEX"] = ""
+    sdk_env["CLOUD_ML_REGION"] = ""
+    sdk_env["ANTHROPIC_VERTEX_PROJECT_ID"] = ""
 
     # Base URL
     base_url = all_settings.get("api_base_url") or provider.get("base_url")
@@ -741,7 +756,6 @@ def get_effective_sdk_env() -> dict[str, str]:
     # Auth token
     auth_token = all_settings.get("api_auth_token")
     if auth_token:
-        auth_env_var = provider.get("auth_env_var", "ANTHROPIC_AUTH_TOKEN")
         sdk_env[auth_env_var] = auth_token
 
     # Model - set all three tier overrides to the same model

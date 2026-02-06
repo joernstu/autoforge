@@ -190,9 +190,12 @@ class AgentStartRequest(BaseModel):
     @field_validator('model')
     @classmethod
     def validate_model(cls, v: str | None) -> str | None:
-        """Validate model is in the allowed list."""
+        """Validate model is in the allowed list (Claude) or allow any model for alternative providers."""
         if v is not None and v not in VALID_MODELS:
-            raise ValueError(f"Invalid model. Must be one of: {VALID_MODELS}")
+            from registry import get_all_settings
+            settings = get_all_settings()
+            if settings.get("api_provider", "claude") == "claude":
+                raise ValueError(f"Invalid model. Must be one of: {VALID_MODELS}")
         return v
 
     @field_validator('max_concurrency')
@@ -571,9 +574,12 @@ class ScheduleCreate(BaseModel):
     @field_validator('model')
     @classmethod
     def validate_model(cls, v: str | None) -> str | None:
-        """Validate model is in the allowed list."""
+        """Validate model is in the allowed list (Claude) or allow any model for alternative providers."""
         if v is not None and v not in VALID_MODELS:
-            raise ValueError(f"Invalid model. Must be one of: {VALID_MODELS}")
+            from registry import get_all_settings
+            settings = get_all_settings()
+            if settings.get("api_provider", "claude") == "claude":
+                raise ValueError(f"Invalid model. Must be one of: {VALID_MODELS}")
         return v
 
 
@@ -593,9 +599,12 @@ class ScheduleUpdate(BaseModel):
     @field_validator('model')
     @classmethod
     def validate_model(cls, v: str | None) -> str | None:
-        """Validate model is in the allowed list."""
+        """Validate model is in the allowed list (Claude) or allow any model for alternative providers."""
         if v is not None and v not in VALID_MODELS:
-            raise ValueError(f"Invalid model. Must be one of: {VALID_MODELS}")
+            from registry import get_all_settings
+            settings = get_all_settings()
+            if settings.get("api_provider", "claude") == "claude":
+                raise ValueError(f"Invalid model. Must be one of: {VALID_MODELS}")
         return v
 
 
