@@ -74,46 +74,65 @@ async def run_agent_session(
         await client.query(message)
 
         # Collect response text and show tool use
+        # Retry receive_response() on MessageParseError — the SDK raises this for
+        # unknown CLI message types (e.g. "rate_limit_event") which kills the async
+        # generator.  The subprocess is still alive so we restart to read remaining
+        # messages from the buffered channel.
         response_text = ""
-        async for msg in client.receive_response():
-            msg_type = type(msg).__name__
+        max_parse_retries = 50
+        parse_retries = 0
+        while True:
+            try:
+                async for msg in client.receive_response():
+                    msg_type = type(msg).__name__
 
-            # Handle AssistantMessage (text and tool use)
-            if msg_type == "AssistantMessage" and hasattr(msg, "content"):
-                for block in msg.content:
-                    block_type = type(block).__name__
+                    # Handle AssistantMessage (text and tool use)
+                    if msg_type == "AssistantMessage" and hasattr(msg, "content"):
+                        for block in msg.content:
+                            block_type = type(block).__name__
 
-                    if block_type == "TextBlock" and hasattr(block, "text"):
-                        response_text += block.text
-                        print(block.text, end="", flush=True)
-                    elif block_type == "ToolUseBlock" and hasattr(block, "name"):
-                        print(f"\n[Tool: {block.name}]", flush=True)
-                        if hasattr(block, "input"):
-                            input_str = str(block.input)
-                            if len(input_str) > 200:
-                                print(f"   Input: {input_str[:200]}...", flush=True)
-                            else:
-                                print(f"   Input: {input_str}", flush=True)
+                            if block_type == "TextBlock" and hasattr(block, "text"):
+                                response_text += block.text
+                                print(block.text, end="", flush=True)
+                            elif block_type == "ToolUseBlock" and hasattr(block, "name"):
+                                print(f"\n[Tool: {block.name}]", flush=True)
+                                if hasattr(block, "input"):
+                                    input_str = str(block.input)
+                                    if len(input_str) > 200:
+                                        print(f"   Input: {input_str[:200]}...", flush=True)
+                                    else:
+                                        print(f"   Input: {input_str}", flush=True)
 
-            # Handle UserMessage (tool results)
-            elif msg_type == "UserMessage" and hasattr(msg, "content"):
-                for block in msg.content:
-                    block_type = type(block).__name__
+                    # Handle UserMessage (tool results)
+                    elif msg_type == "UserMessage" and hasattr(msg, "content"):
+                        for block in msg.content:
+                            block_type = type(block).__name__
 
-                    if block_type == "ToolResultBlock":
-                        result_content = getattr(block, "content", "")
-                        is_error = getattr(block, "is_error", False)
+                            if block_type == "ToolResultBlock":
+                                result_content = getattr(block, "content", "")
+                                is_error = getattr(block, "is_error", False)
 
-                        # Check if command was blocked by security hook
-                        if "blocked" in str(result_content).lower():
-                            print(f"   [BLOCKED] {result_content}", flush=True)
-                        elif is_error:
-                            # Show errors (truncated)
-                            error_str = str(result_content)[:500]
-                            print(f"   [Error] {error_str}", flush=True)
-                        else:
-                            # Tool succeeded - just show brief confirmation
-                            print("   [Done]", flush=True)
+                                # Check if command was blocked by security hook
+                                if "blocked" in str(result_content).lower():
+                                    print(f"   [BLOCKED] {result_content}", flush=True)
+                                elif is_error:
+                                    # Show errors (truncated)
+                                    error_str = str(result_content)[:500]
+                                    print(f"   [Error] {error_str}", flush=True)
+                                else:
+                                    # Tool succeeded - just show brief confirmation
+                                    print("   [Done]", flush=True)
+
+                break  # Normal completion
+            except Exception as inner_exc:
+                if type(inner_exc).__name__ == "MessageParseError":
+                    parse_retries += 1
+                    if parse_retries > max_parse_retries:
+                        print(f"Too many unrecognized CLI messages ({parse_retries}), stopping")
+                        break
+                    print(f"Ignoring unrecognized message from Claude CLI: {inner_exc}")
+                    continue
+                raise  # Re-raise to outer except
 
         print("\n" + "-" * 70 + "\n")
         return "continue", response_text

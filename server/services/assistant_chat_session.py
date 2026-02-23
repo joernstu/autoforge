@@ -7,7 +7,6 @@ The assistant can answer questions about the codebase and features
 but cannot modify any files.
 """
 
-import asyncio
 import json
 import logging
 import os
@@ -27,10 +26,9 @@ from .assistant_database import (
     get_messages,
 )
 from .chat_constants import (
-    MAX_CHAT_RATE_LIMIT_RETRIES,
     ROOT_DIR,
-    calculate_rate_limit_backoff,
     check_rate_limit_error,
+    safe_receive_response,
 )
 
 # Load environment variables from .env file if present
@@ -399,66 +397,47 @@ class AssistantChatSession:
 
         full_response = ""
 
-        # Stream the response (with rate-limit retry)
-        for _attempt in range(MAX_CHAT_RATE_LIMIT_RETRIES + 1):
-            try:
-                async for msg in self.client.receive_response():
-                    msg_type = type(msg).__name__
+        # Stream the response
+        try:
+            async for msg in safe_receive_response(self.client, logger):
+                msg_type = type(msg).__name__
 
-                    if msg_type == "AssistantMessage" and hasattr(msg, "content"):
-                        for block in msg.content:
-                            block_type = type(block).__name__
+                if msg_type == "AssistantMessage" and hasattr(msg, "content"):
+                    for block in msg.content:
+                        block_type = type(block).__name__
 
-                            if block_type == "TextBlock" and hasattr(block, "text"):
-                                text = block.text
-                                if text:
-                                    full_response += text
-                                    yield {"type": "text", "content": text}
+                        if block_type == "TextBlock" and hasattr(block, "text"):
+                            text = block.text
+                            if text:
+                                full_response += text
+                                yield {"type": "text", "content": text}
 
-                            elif block_type == "ToolUseBlock" and hasattr(block, "name"):
-                                tool_name = block.name
-                                tool_input = getattr(block, "input", {})
+                        elif block_type == "ToolUseBlock" and hasattr(block, "name"):
+                            tool_name = block.name
+                            tool_input = getattr(block, "input", {})
 
-                                # Intercept ask_user tool calls -> yield as question message
-                                if tool_name == "mcp__features__ask_user":
-                                    questions = tool_input.get("questions", [])
-                                    if questions:
-                                        yield {
-                                            "type": "question",
-                                            "questions": questions,
-                                        }
-                                        continue
+                            # Intercept ask_user tool calls -> yield as question message
+                            if tool_name == "mcp__features__ask_user":
+                                questions = tool_input.get("questions", [])
+                                if questions:
+                                    yield {
+                                        "type": "question",
+                                        "questions": questions,
+                                    }
+                                    continue
 
-                                yield {
-                                    "type": "tool_call",
-                                    "tool": tool_name,
-                                    "input": tool_input,
-                                }
-                # Completed successfully — break out of retry loop
-                break
-            except Exception as exc:
-                is_rate_limit, retry_secs = check_rate_limit_error(exc)
-                if is_rate_limit and _attempt < MAX_CHAT_RATE_LIMIT_RETRIES:
-                    delay = retry_secs if retry_secs else calculate_rate_limit_backoff(_attempt)
-                    logger.warning(f"Rate limited (attempt {_attempt + 1}/{MAX_CHAT_RATE_LIMIT_RETRIES}), retrying in {delay}s")
-                    yield {
-                        "type": "rate_limited",
-                        "retry_in": delay,
-                        "attempt": _attempt + 1,
-                        "max_attempts": MAX_CHAT_RATE_LIMIT_RETRIES,
-                    }
-                    await asyncio.sleep(delay)
-                    await self.client.query(message)
-                    continue
-                if is_rate_limit:
-                    logger.error("Rate limit retries exhausted for assistant chat")
-                    yield {"type": "error", "content": "Rate limited. Please try again later."}
-                    return
-                # Non-rate-limit MessageParseError: log and break (don't crash)
-                if type(exc).__name__ == "MessageParseError":
-                    logger.warning(f"Ignoring unrecognized message from Claude CLI: {exc}")
-                    break
-                raise
+                            yield {
+                                "type": "tool_call",
+                                "tool": tool_name,
+                                "input": tool_input,
+                            }
+        except Exception as exc:
+            is_rate_limit, _ = check_rate_limit_error(exc)
+            if is_rate_limit:
+                logger.warning(f"Rate limited: {exc}")
+                yield {"type": "error", "content": "Rate limited. Please try again later."}
+                return
+            raise
 
         # Store the complete response in the database
         if full_response and self.conversation_id:

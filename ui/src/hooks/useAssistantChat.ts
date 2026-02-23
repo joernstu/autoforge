@@ -269,20 +269,6 @@ export function useAssistantChat({
             break;
           }
 
-          case "rate_limited": {
-            // Show rate limit info as system message
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: generateId(),
-                role: "system",
-                content: `Rate limited. Retrying in ${data.retry_in}s... (attempt ${data.attempt}/${data.max_attempts})`,
-                timestamp: new Date(),
-              },
-            ]);
-            break;
-          }
-
           case "pong": {
             // Keep-alive response, nothing to do
             break;

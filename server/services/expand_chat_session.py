@@ -23,11 +23,10 @@ from dotenv import load_dotenv
 
 from ..schemas import ImageAttachment
 from .chat_constants import (
-    MAX_CHAT_RATE_LIMIT_RETRIES,
     ROOT_DIR,
-    calculate_rate_limit_backoff,
     check_rate_limit_error,
     make_multimodal_message,
+    safe_receive_response,
 )
 
 # Load environment variables from .env file if present
@@ -304,67 +303,32 @@ class ExpandChatSession:
         else:
             await self.client.query(message)
 
-        # Stream the response (with rate-limit retry)
-        for _attempt in range(MAX_CHAT_RATE_LIMIT_RETRIES + 1):
-            try:
-                async for msg in self.client.receive_response():
-                    msg_type = type(msg).__name__
+        # Stream the response
+        try:
+            async for msg in safe_receive_response(self.client, logger):
+                msg_type = type(msg).__name__
 
-                    if msg_type == "AssistantMessage" and hasattr(msg, "content"):
-                        for block in msg.content:
-                            block_type = type(block).__name__
+                if msg_type == "AssistantMessage" and hasattr(msg, "content"):
+                    for block in msg.content:
+                        block_type = type(block).__name__
 
-                            if block_type == "TextBlock" and hasattr(block, "text"):
-                                text = block.text
-                                if text:
-                                    yield {"type": "text", "content": text}
+                        if block_type == "TextBlock" and hasattr(block, "text"):
+                            text = block.text
+                            if text:
+                                yield {"type": "text", "content": text}
 
-                                    self.messages.append({
-                                        "role": "assistant",
-                                        "content": text,
-                                        "timestamp": datetime.now().isoformat()
-                                    })
-                # Completed successfully — break out of retry loop
-                break
-            except Exception as exc:
-                is_rate_limit, retry_secs = check_rate_limit_error(exc)
-                if is_rate_limit and _attempt < MAX_CHAT_RATE_LIMIT_RETRIES:
-                    delay = retry_secs if retry_secs else calculate_rate_limit_backoff(_attempt)
-                    logger.warning(f"Rate limited (attempt {_attempt + 1}/{MAX_CHAT_RATE_LIMIT_RETRIES}), retrying in {delay}s")
-                    yield {
-                        "type": "rate_limited",
-                        "retry_in": delay,
-                        "attempt": _attempt + 1,
-                        "max_attempts": MAX_CHAT_RATE_LIMIT_RETRIES,
-                    }
-                    await asyncio.sleep(delay)
-                    # Re-send the query before retrying receive_response
-                    if attachments and len(attachments) > 0:
-                        content_blocks_retry: list[dict[str, Any]] = []
-                        if message:
-                            content_blocks_retry.append({"type": "text", "text": message})
-                        for att in attachments:
-                            content_blocks_retry.append({
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": att.mimeType,
-                                    "data": att.base64Data,
-                                }
-                            })
-                        await self.client.query(make_multimodal_message(content_blocks_retry))
-                    else:
-                        await self.client.query(message)
-                    continue
-                if is_rate_limit:
-                    logger.error("Rate limit retries exhausted for expand chat")
-                    yield {"type": "error", "content": "Rate limited. Please try again later."}
-                    return
-                # Non-rate-limit MessageParseError: log and break (don't crash)
-                if type(exc).__name__ == "MessageParseError":
-                    logger.warning(f"Ignoring unrecognized message from Claude CLI: {exc}")
-                    break
-                raise
+                                self.messages.append({
+                                    "role": "assistant",
+                                    "content": text,
+                                    "timestamp": datetime.now().isoformat()
+                                })
+        except Exception as exc:
+            is_rate_limit, _ = check_rate_limit_error(exc)
+            if is_rate_limit:
+                logger.warning(f"Rate limited: {exc}")
+                yield {"type": "error", "content": "Rate limited. Please try again later."}
+                return
+            raise
 
     def get_features_created(self) -> int:
         """Get the total number of features created in this session."""

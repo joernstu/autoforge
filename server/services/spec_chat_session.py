@@ -6,7 +6,6 @@ Manages interactive spec creation conversation with Claude.
 Uses the create-spec.md skill to guide users through app spec creation.
 """
 
-import asyncio
 import json
 import logging
 import os
@@ -21,11 +20,10 @@ from dotenv import load_dotenv
 
 from ..schemas import ImageAttachment
 from .chat_constants import (
-    MAX_CHAT_RATE_LIMIT_RETRIES,
     ROOT_DIR,
-    calculate_rate_limit_backoff,
     check_rate_limit_error,
     make_multimodal_message,
+    safe_receive_response,
 )
 
 # Load environment variables from .env file if present
@@ -311,145 +309,125 @@ class SpecChatSession:
         # Store paths for the completion message
         spec_path = None
 
-        # Stream the response using receive_response (with rate-limit retry)
-        for _attempt in range(MAX_CHAT_RATE_LIMIT_RETRIES + 1):
-            try:
-                async for msg in self.client.receive_response():
-                    msg_type = type(msg).__name__
+        # Stream the response
+        try:
+            async for msg in safe_receive_response(self.client, logger):
+                msg_type = type(msg).__name__
 
-                    if msg_type == "AssistantMessage" and hasattr(msg, "content"):
-                        # Process content blocks in the assistant message
-                        for block in msg.content:
-                            block_type = type(block).__name__
+                if msg_type == "AssistantMessage" and hasattr(msg, "content"):
+                    # Process content blocks in the assistant message
+                    for block in msg.content:
+                        block_type = type(block).__name__
 
-                            if block_type == "TextBlock" and hasattr(block, "text"):
-                                # Accumulate text and yield it
-                                text = block.text
-                                if text:
-                                    current_text += text
-                                    yield {"type": "text", "content": text}
+                        if block_type == "TextBlock" and hasattr(block, "text"):
+                            # Accumulate text and yield it
+                            text = block.text
+                            if text:
+                                current_text += text
+                                yield {"type": "text", "content": text}
 
-                                    # Store in message history
-                                    self.messages.append({
-                                        "role": "assistant",
-                                        "content": text,
-                                        "timestamp": datetime.now().isoformat()
-                                    })
+                                # Store in message history
+                                self.messages.append({
+                                    "role": "assistant",
+                                    "content": text,
+                                    "timestamp": datetime.now().isoformat()
+                                })
 
-                            elif block_type == "ToolUseBlock" and hasattr(block, "name"):
-                                tool_name = block.name
-                                tool_input = getattr(block, "input", {})
-                                tool_id = getattr(block, "id", "")
+                        elif block_type == "ToolUseBlock" and hasattr(block, "name"):
+                            tool_name = block.name
+                            tool_input = getattr(block, "input", {})
+                            tool_id = getattr(block, "id", "")
 
-                                if tool_name in ("Write", "Edit"):
-                                    # File being written or edited - track for verification
-                                    file_path = tool_input.get("file_path", "")
+                            if tool_name in ("Write", "Edit"):
+                                # File being written or edited - track for verification
+                                file_path = tool_input.get("file_path", "")
 
-                                    # Track app_spec.txt
-                                    if "app_spec.txt" in str(file_path):
-                                        pending_writes["app_spec"] = {
-                                            "tool_id": tool_id,
-                                            "path": file_path
-                                        }
-                                        logger.info(f"{tool_name} tool called for app_spec.txt: {file_path}")
+                                # Track app_spec.txt
+                                if "app_spec.txt" in str(file_path):
+                                    pending_writes["app_spec"] = {
+                                        "tool_id": tool_id,
+                                        "path": file_path
+                                    }
+                                    logger.info(f"{tool_name} tool called for app_spec.txt: {file_path}")
 
-                                    # Track initializer_prompt.md
-                                    elif "initializer_prompt.md" in str(file_path):
-                                        pending_writes["initializer"] = {
-                                            "tool_id": tool_id,
-                                            "path": file_path
-                                        }
-                                        logger.info(f"{tool_name} tool called for initializer_prompt.md: {file_path}")
+                                # Track initializer_prompt.md
+                                elif "initializer_prompt.md" in str(file_path):
+                                    pending_writes["initializer"] = {
+                                        "tool_id": tool_id,
+                                        "path": file_path
+                                    }
+                                    logger.info(f"{tool_name} tool called for initializer_prompt.md: {file_path}")
 
-                    elif msg_type == "UserMessage" and hasattr(msg, "content"):
-                        # Tool results - check for write confirmations and errors
-                        for block in msg.content:
-                            block_type = type(block).__name__
-                            if block_type == "ToolResultBlock":
-                                is_error = getattr(block, "is_error", False)
-                                tool_use_id = getattr(block, "tool_use_id", "")
+                elif msg_type == "UserMessage" and hasattr(msg, "content"):
+                    # Tool results - check for write confirmations and errors
+                    for block in msg.content:
+                        block_type = type(block).__name__
+                        if block_type == "ToolResultBlock":
+                            is_error = getattr(block, "is_error", False)
+                            tool_use_id = getattr(block, "tool_use_id", "")
 
-                                if is_error:
-                                    content = getattr(block, "content", "Unknown error")
-                                    logger.warning(f"Tool error: {content}")
-                                    # Clear any pending writes that failed
-                                    for key in pending_writes:
-                                        pending_write = pending_writes[key]
-                                        if pending_write is not None and tool_use_id == pending_write.get("tool_id"):
-                                            logger.error(f"{key} write failed: {content}")
-                                            pending_writes[key] = None
-                                else:
-                                    # Tool succeeded - check which file was written
+                            if is_error:
+                                content = getattr(block, "content", "Unknown error")
+                                logger.warning(f"Tool error: {content}")
+                                # Clear any pending writes that failed
+                                for key in pending_writes:
+                                    pending_write = pending_writes[key]
+                                    if pending_write is not None and tool_use_id == pending_write.get("tool_id"):
+                                        logger.error(f"{key} write failed: {content}")
+                                        pending_writes[key] = None
+                            else:
+                                # Tool succeeded - check which file was written
 
-                                    # Check app_spec.txt
-                                    if pending_writes["app_spec"] and tool_use_id == pending_writes["app_spec"].get("tool_id"):
-                                        file_path = pending_writes["app_spec"]["path"]
-                                        full_path = Path(file_path) if Path(file_path).is_absolute() else self.project_dir / file_path
-                                        if full_path.exists():
-                                            logger.info(f"app_spec.txt verified at: {full_path}")
-                                            files_written["app_spec"] = True
-                                            spec_path = file_path
+                                # Check app_spec.txt
+                                if pending_writes["app_spec"] and tool_use_id == pending_writes["app_spec"].get("tool_id"):
+                                    file_path = pending_writes["app_spec"]["path"]
+                                    full_path = Path(file_path) if Path(file_path).is_absolute() else self.project_dir / file_path
+                                    if full_path.exists():
+                                        logger.info(f"app_spec.txt verified at: {full_path}")
+                                        files_written["app_spec"] = True
+                                        spec_path = file_path
 
-                                            # Notify about file write (but NOT completion yet)
-                                            yield {
-                                                "type": "file_written",
-                                                "path": str(file_path)
-                                            }
-                                        else:
-                                            logger.error(f"app_spec.txt not found after write: {full_path}")
-                                        pending_writes["app_spec"] = None
-
-                                    # Check initializer_prompt.md
-                                    if pending_writes["initializer"] and tool_use_id == pending_writes["initializer"].get("tool_id"):
-                                        file_path = pending_writes["initializer"]["path"]
-                                        full_path = Path(file_path) if Path(file_path).is_absolute() else self.project_dir / file_path
-                                        if full_path.exists():
-                                            logger.info(f"initializer_prompt.md verified at: {full_path}")
-                                            files_written["initializer"] = True
-
-                                            # Notify about file write
-                                            yield {
-                                                "type": "file_written",
-                                                "path": str(file_path)
-                                            }
-                                        else:
-                                            logger.error(f"initializer_prompt.md not found after write: {full_path}")
-                                        pending_writes["initializer"] = None
-
-                                    # Check if BOTH files are now written - only then signal completion
-                                    if files_written["app_spec"] and files_written["initializer"]:
-                                        logger.info("Both app_spec.txt and initializer_prompt.md verified - signaling completion")
-                                        self.complete = True
+                                        # Notify about file write (but NOT completion yet)
                                         yield {
-                                            "type": "spec_complete",
-                                            "path": str(spec_path)
+                                            "type": "file_written",
+                                            "path": str(file_path)
                                         }
-                # Completed successfully — break out of retry loop
-                break
-            except Exception as exc:
-                is_rate_limit, retry_secs = check_rate_limit_error(exc)
-                if is_rate_limit and _attempt < MAX_CHAT_RATE_LIMIT_RETRIES:
-                    delay = retry_secs if retry_secs else calculate_rate_limit_backoff(_attempt)
-                    logger.warning(f"Rate limited (attempt {_attempt + 1}/{MAX_CHAT_RATE_LIMIT_RETRIES}), retrying in {delay}s")
-                    yield {
-                        "type": "rate_limited",
-                        "retry_in": delay,
-                        "attempt": _attempt + 1,
-                        "max_attempts": MAX_CHAT_RATE_LIMIT_RETRIES,
-                    }
-                    await asyncio.sleep(delay)
-                    # Re-send the query before retrying receive_response
-                    await self.client.query(message)
-                    continue
-                if is_rate_limit:
-                    logger.error("Rate limit retries exhausted for spec chat")
-                    yield {"type": "error", "content": "Rate limited. Please try again later."}
-                    return
-                # Non-rate-limit MessageParseError: log and break (don't crash)
-                if type(exc).__name__ == "MessageParseError":
-                    logger.warning(f"Ignoring unrecognized message from Claude CLI: {exc}")
-                    break
-                raise
+                                    else:
+                                        logger.error(f"app_spec.txt not found after write: {full_path}")
+                                    pending_writes["app_spec"] = None
+
+                                # Check initializer_prompt.md
+                                if pending_writes["initializer"] and tool_use_id == pending_writes["initializer"].get("tool_id"):
+                                    file_path = pending_writes["initializer"]["path"]
+                                    full_path = Path(file_path) if Path(file_path).is_absolute() else self.project_dir / file_path
+                                    if full_path.exists():
+                                        logger.info(f"initializer_prompt.md verified at: {full_path}")
+                                        files_written["initializer"] = True
+
+                                        # Notify about file write
+                                        yield {
+                                            "type": "file_written",
+                                            "path": str(file_path)
+                                        }
+                                    else:
+                                        logger.error(f"initializer_prompt.md not found after write: {full_path}")
+                                    pending_writes["initializer"] = None
+
+                                # Check if BOTH files are now written - only then signal completion
+                                if files_written["app_spec"] and files_written["initializer"]:
+                                    logger.info("Both app_spec.txt and initializer_prompt.md verified - signaling completion")
+                                    self.complete = True
+                                    yield {
+                                        "type": "spec_complete",
+                                        "path": str(spec_path)
+                                    }
+        except Exception as exc:
+            is_rate_limit, _ = check_rate_limit_error(exc)
+            if is_rate_limit:
+                logger.warning(f"Rate limited: {exc}")
+                yield {"type": "error", "content": "Rate limited. Please try again later."}
+                return
+            raise
 
     def is_complete(self) -> bool:
         """Check if spec creation is complete."""
