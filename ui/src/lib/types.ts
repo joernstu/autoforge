@@ -407,6 +407,13 @@ export interface SpecChatResponseDoneMessage {
   type: 'response_done'
 }
 
+export interface SpecChatRateLimitedMessage {
+  type: 'rate_limited'
+  retry_in: number
+  attempt: number
+  max_attempts: number
+}
+
 export type SpecChatServerMessage =
   | SpecChatTextMessage
   | SpecChatQuestionMessage
@@ -416,6 +423,7 @@ export type SpecChatServerMessage =
   | SpecChatErrorMessage
   | SpecChatPongMessage
   | SpecChatResponseDoneMessage
+  | SpecChatRateLimitedMessage
 
 // Image attachment for chat messages
 export interface ImageAttachment {
@@ -501,6 +509,13 @@ export interface AssistantChatPongMessage {
   type: 'pong'
 }
 
+export interface AssistantChatRateLimitedMessage {
+  type: 'rate_limited'
+  retry_in: number
+  attempt: number
+  max_attempts: number
+}
+
 export type AssistantChatServerMessage =
   | AssistantChatTextMessage
   | AssistantChatToolCallMessage
@@ -509,6 +524,7 @@ export type AssistantChatServerMessage =
   | AssistantChatErrorMessage
   | AssistantChatConversationCreatedMessage
   | AssistantChatPongMessage
+  | AssistantChatRateLimitedMessage
 
 // ============================================================================
 // Expand Chat Types
@@ -532,6 +548,7 @@ export type ExpandChatServerMessage =
   | SpecChatErrorMessage       // Reuse error message type
   | SpecChatPongMessage        // Reuse pong message type
   | SpecChatResponseDoneMessage // Reuse response_done type
+  | SpecChatRateLimitedMessage // Reuse rate_limited message type
 
 // Bulk feature creation
 export interface FeatureBulkCreate {
