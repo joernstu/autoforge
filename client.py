@@ -351,6 +351,7 @@ def create_client(
     is_alternative_api = bool(base_url) or is_vertex
     is_ollama = "localhost:11434" in base_url or "127.0.0.1:11434" in base_url
     is_azure = "services.ai.azure.com" in base_url
+    is_ionos = "openai.inference.de-txl.ionos.com" in base_url
     model = convert_model_for_vertex(model)
     if sdk_env:
         print(f"   - API overrides: {', '.join(sdk_env.keys())}")
@@ -362,6 +363,8 @@ def create_client(
             print("   - Ollama Mode: Using local models")
         elif is_azure:
             print(f"   - Azure Mode: Using {base_url}")
+        elif is_ionos:
+            print(f"   - IONOS AI Model Hub: Using {base_url}")
         elif "ANTHROPIC_BASE_URL" in sdk_env:
             print(f"   - Alternative API: Using {sdk_env['ANTHROPIC_BASE_URL']}")
 

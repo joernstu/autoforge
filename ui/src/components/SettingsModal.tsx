@@ -24,6 +24,7 @@ const PROVIDER_INFO_TEXT: Record<string, string> = {
   kimi: 'Get an API key at kimi.com',
   glm: 'Get an API key at open.bigmodel.cn',
   ollama: 'Run models locally. Install from ollama.com',
+  ionos: 'IONOS Cloud AI Model Hub (OpenAI-compatible). Get an API key at cloud.ionos.de',
   custom: 'Connect to any OpenAI-compatible API endpoint.',
 }
 
@@ -104,7 +105,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const isAlternativeProvider = currentProvider !== 'claude'
   const showAuthField = isAlternativeProvider && currentProviderInfo?.requires_auth
   const showBaseUrlField = currentProvider === 'custom' || currentProvider === 'azure'
-  const showCustomModelInput = currentProvider === 'custom' || currentProvider === 'ollama'
+  const showCustomModelInput = currentProvider === 'custom' || currentProvider === 'ollama' || currentProvider === 'ionos'
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

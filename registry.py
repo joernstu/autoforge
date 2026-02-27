@@ -699,6 +699,18 @@ API_PROVIDERS: dict[str, dict[str, Any]] = {
         ],
         "default_model": "qwen3-coder",
     },
+    "ionos": {
+        "name": "IONOS AI Model Hub",
+        "base_url": "https://openai.inference.de-txl.ionos.com/v1",
+        "requires_auth": True,
+        "auth_env_var": "ANTHROPIC_API_KEY",
+        "models": [
+            {"id": "meta-llama/Llama-3.3-70B-Instruct", "name": "Llama 3.3 70B (€0.65/M)"},
+            {"id": "openai/gpt-oss-120b", "name": "GPT OSS 120B (€0.15/€0.65 per M)"},
+            {"id": "mistralai/Mistral-Small-24B-Instruct", "name": "Mistral Small 24B (€0.10/€0.30 per M)"},
+        ],
+        "default_model": "meta-llama/Llama-3.3-70B-Instruct",
+    },
     "custom": {
         "name": "Custom Provider",
         "base_url": "",
