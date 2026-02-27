@@ -135,6 +135,7 @@ DEFAULT_TESTING_BATCH_SIZE = 3  # Number of features per testing batch (1-5)
 POLL_INTERVAL = 5  # seconds between checking for ready features
 MAX_FEATURE_RETRIES = 3  # Maximum times to retry a failed feature
 INITIALIZER_TIMEOUT = 1800  # 30 minutes timeout for initializer
+AGENT_SPAWN_STAGGER_SECS = 1.5  # Delay between consecutive agent spawns to avoid ~/.claude.json race condition
 
 
 class ParallelOrchestrator:
@@ -643,7 +644,7 @@ class ParallelOrchestrator:
                 session.close()
         return sum(1 for fd in feature_dicts if fd.get("passes"))
 
-    def _maintain_testing_agents(self, feature_dicts: list[dict] | None = None) -> None:
+    async def _maintain_testing_agents(self, feature_dicts: list[dict] | None = None) -> None:
         """Maintain the desired count of testing agents independently.
 
         This runs every loop iteration and spawns testing agents as needed to maintain
@@ -698,6 +699,9 @@ class ParallelOrchestrator:
 
             # Spawn outside lock (I/O bound operation)
             logger.debug("Spawning testing agent (%d/%d)", spawn_index, desired)
+            # Stagger consecutive spawns to avoid ~/.claude.json race condition
+            if spawn_index > 1:
+                await asyncio.sleep(AGENT_SPAWN_STAGGER_SECS)
             success, msg = self._spawn_testing_agent()
             if not success:
                 debug_log.log("TESTING", f"Spawn failed, stopping: {msg}")
@@ -1549,7 +1553,7 @@ class ParallelOrchestrator:
                         continue
 
                 # Maintain testing agents independently (runs every iteration)
-                self._maintain_testing_agents(feature_dicts)
+                await self._maintain_testing_agents(feature_dicts)
 
                 # Check capacity
                 with self._lock:
@@ -1620,10 +1624,13 @@ class ParallelOrchestrator:
                     batch_count=len(batches),
                     batches=[[f['id'] for f in b] for b in batches[:slots]])
 
-                for batch in batches[:slots]:
+                for spawn_index, batch in enumerate(batches[:slots]):
                     batch_ids = [f["id"] for f in batch]
                     batch_names = [f"{f['id']}:{f['name']}" for f in batch]
                     logger.debug("Starting batch: %s", batch_ids)
+                    # Stagger consecutive agent spawns to avoid ~/.claude.json race condition
+                    if spawn_index > 0:
+                        await asyncio.sleep(AGENT_SPAWN_STAGGER_SECS)
                     success, msg = self.start_feature_batch(batch_ids)
                     if not success:
                         logger.debug("Failed to start batch %s: %s", batch_ids, msg)
