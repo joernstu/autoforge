@@ -651,3 +651,18 @@ export interface NextRunResponse {
   is_currently_running: boolean
   active_schedule_count: number
 }
+
+// ─── API Call Tracking ────────────────────────────────────────────────────────
+
+export type ApiCallType = 'tool' | 'usage' | 'rate_limit' | 'error'
+
+export interface ApiCallEntry {
+  id: string
+  timestamp: string
+  featureId?: number
+  agentIndex?: number
+  callType: ApiCallType
+  tool: string
+  detail: string
+  raw: string
+}

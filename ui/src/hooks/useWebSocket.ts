@@ -12,7 +12,44 @@ import type {
   AgentLogEntry,
   OrchestratorStatus,
   OrchestratorEvent,
+  ApiCallEntry,
 } from '../lib/types'
+
+// ─── API call detection (runs on every incoming log line) ──────────────────
+const _TOOL_PAT = /\[Tool:\s*(\w+)\]/i
+const _COST_PAT = /(?:total cost|cost:|api usage|session cost)\s*[\$€£]?[\d.]+/i
+const _RATE_PAT = /rate.?limit|too many requests|429|retry.?after/i
+const _ERR_PAT  = /api.?error|request.?failed|connection.?error|ssl.?error|timeout.*api/i
+
+function _parseApiCallEntry(
+  line: string,
+  timestamp: string,
+  featureId: number | undefined,
+  agentIndex: number | undefined,
+  id: string,
+): ApiCallEntry | null {
+  const toolMatch = _TOOL_PAT.exec(line)
+  if (toolMatch) {
+    const detail = line
+      .replace(/^\[Feature #\d+\]\s*/, '')
+      .replace(/\[Tool:\s*\w+\]\s*/, '')
+      .trim()
+    return { id, timestamp, featureId, agentIndex, callType: 'tool', tool: toolMatch[1], detail, raw: line }
+  }
+  if (_RATE_PAT.test(line)) {
+    return { id, timestamp, featureId, agentIndex, callType: 'rate_limit', tool: 'RateLimit',
+      detail: line.replace(/^\[Feature #\d+\]\s*/, '').trim(), raw: line }
+  }
+  if (_ERR_PAT.test(line)) {
+    return { id, timestamp, featureId, agentIndex, callType: 'error', tool: 'APIError',
+      detail: line.replace(/^\[Feature #\d+\]\s*/, '').trim(), raw: line }
+  }
+  if (_COST_PAT.test(line)) {
+    return { id, timestamp, featureId, agentIndex, callType: 'usage', tool: 'Usage',
+      detail: line.replace(/^\[Feature #\d+\]\s*/, '').trim(), raw: line }
+  }
+  return null
+}
 
 // Activity item for the feed
 interface ActivityItem {
@@ -48,6 +85,8 @@ interface WebSocketState {
   recentActivity: ActivityItem[]
   // Per-agent logs for debugging (indexed by agentIndex)
   agentLogs: Map<number, AgentLogEntry[]>
+  // Accumulated API call entries — independent of the rolling logs buffer
+  apiCalls: ApiCallEntry[]
   // Celebration queue to handle rapid successes without race conditions
   celebrationQueue: CelebrationTrigger[]
   celebration: CelebrationTrigger | null
@@ -55,8 +94,9 @@ interface WebSocketState {
   orchestratorStatus: OrchestratorStatus | null
 }
 
-const MAX_LOGS = 100 // Keep last 100 log lines
-const MAX_ACTIVITY = 20 // Keep last 20 activity items
+const MAX_LOGS = 100      // Keep last 100 log lines (for Agent tab display)
+const MAX_API_CALLS = 1000 // Keep last 1000 API call entries (independent buffer)
+const MAX_ACTIVITY = 20   // Keep last 20 activity items
 const MAX_AGENT_LOGS = 500 // Keep last 500 log lines per agent
 
 export function useProjectWebSocket(projectName: string | null) {
@@ -71,6 +111,7 @@ export function useProjectWebSocket(projectName: string | null) {
     activeAgents: [],
     recentActivity: [],
     agentLogs: new Map(),
+    apiCalls: [],
     celebrationQueue: [],
     celebration: null,
     orchestratorStatus: null,
@@ -130,7 +171,7 @@ export function useProjectWebSocket(projectName: string | null) {
 
             case 'log':
               setState(prev => {
-                // Update global logs
+                // Update rolling display logs (capped for Agent tab)
                 const newLogs = [
                   ...prev.logs.slice(-MAX_LOGS + 1),
                   {
@@ -157,7 +198,19 @@ export function useProjectWebSocket(projectName: string | null) {
                   )
                 }
 
-                return { ...prev, logs: newLogs, agentLogs: newAgentLogs }
+                // Parse for API calls independently — never evicted by the log cap
+                const apiCallEntry = _parseApiCallEntry(
+                  message.line,
+                  message.timestamp,
+                  message.featureId,
+                  message.agentIndex,
+                  `${message.timestamp}-${prev.apiCalls.length}`,
+                )
+                const newApiCalls = apiCallEntry
+                  ? [...prev.apiCalls.slice(-MAX_API_CALLS + 1), apiCallEntry]
+                  : prev.apiCalls
+
+                return { ...prev, logs: newLogs, agentLogs: newAgentLogs, apiCalls: newApiCalls }
               })
               break
 
@@ -400,6 +453,7 @@ export function useProjectWebSocket(projectName: string | null) {
       celebrationQueue: [],
       celebration: null,
       orchestratorStatus: null,
+      apiCalls: [],
     })
 
     if (!projectName) {

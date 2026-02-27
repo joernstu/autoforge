@@ -466,7 +466,7 @@ class SettingsUpdate(BaseModel):
     batch_size: int | None = None  # Features per agent batch (1-3)
     api_provider: str | None = None
     api_base_url: str | None = Field(None, max_length=500)
-    api_auth_token: str | None = Field(None, max_length=500)  # Write-only, never returned
+    api_auth_token: str | None = Field(None, max_length=4096)  # Write-only, never returned (JWT tokens can be 600+ chars)
     api_model: str | None = Field(None, max_length=200)
 
     @field_validator('api_base_url')

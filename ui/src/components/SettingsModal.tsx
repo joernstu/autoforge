@@ -24,7 +24,7 @@ const PROVIDER_INFO_TEXT: Record<string, string> = {
   kimi: 'Get an API key at kimi.com',
   glm: 'Get an API key at open.bigmodel.cn',
   ollama: 'Run models locally. Install from ollama.com',
-  ionos: 'IONOS Cloud AI Model Hub (OpenAI-compatible). Get an API key at cloud.ionos.de',
+  ionos: 'IONOS AI Model Hub. Get an API key at cloud.ionos.de. Uses built-in LiteLLM proxy for Anthropic\u2194OpenAI translation.',
   custom: 'Connect to any OpenAI-compatible API endpoint.',
 }
 

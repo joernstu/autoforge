@@ -16,6 +16,7 @@ from .scaffold import router as scaffold_router
 from .schedules import router as schedules_router
 from .settings import router as settings_router
 from .spec_creation import router as spec_creation_router
+from .proxy import router as proxy_router
 from .terminal import router as terminal_router
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     "settings_router",
     "terminal_router",
     "scaffold_router",
+    "proxy_router",
 ]

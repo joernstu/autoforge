@@ -703,11 +703,11 @@ API_PROVIDERS: dict[str, dict[str, Any]] = {
         "name": "IONOS AI Model Hub",
         "base_url": "https://openai.inference.de-txl.ionos.com/v1",
         "requires_auth": True,
-        "auth_env_var": "ANTHROPIC_API_KEY",
+        "auth_env_var": "ANTHROPIC_AUTH_TOKEN",  # OpenAI-compatible API needs Authorization: Bearer header
         "models": [
-            {"id": "meta-llama/Llama-3.3-70B-Instruct", "name": "Llama 3.3 70B (€0.65/M)"},
-            {"id": "openai/gpt-oss-120b", "name": "GPT OSS 120B (€0.15/€0.65 per M)"},
-            {"id": "mistralai/Mistral-Small-24B-Instruct", "name": "Mistral Small 24B (€0.10/€0.30 per M)"},
+            {"id": "meta-llama/Llama-3.3-70B-Instruct", "name": "Llama 3.3 70B"},
+            {"id": "openai/gpt-oss-120b", "name": "GPT OSS 120B"},
+            {"id": "mistralai/Mistral-Small-24B-Instruct", "name": "Mistral Small 24B"},
         ],
         "default_model": "meta-llama/Llama-3.3-70B-Instruct",
     },
@@ -720,6 +720,10 @@ API_PROVIDERS: dict[str, dict[str, Any]] = {
         "default_model": "",
     },
 }
+
+# Providers that only support OpenAI format and need the built-in
+# Anthropic-to-OpenAI translation proxy (via litellm) on the local server.
+PROXY_REQUIRED_PROVIDERS: set[str] = {"ionos"}
 
 
 def get_effective_sdk_env() -> dict[str, str]:
@@ -773,15 +777,27 @@ def get_effective_sdk_env() -> dict[str, str]:
     sdk_env["CLOUD_ML_REGION"] = ""
     sdk_env["ANTHROPIC_VERTEX_PROJECT_ID"] = ""
 
-    # Base URL
-    base_url = all_settings.get("api_base_url") or provider.get("base_url")
-    if base_url:
-        sdk_env["ANTHROPIC_BASE_URL"] = base_url
+    if provider_id in PROXY_REQUIRED_PROVIDERS:
+        # Route through the local LiteLLM proxy which translates
+        # Anthropic format (/v1/messages) to OpenAI format (/v1/chat/completions).
+        # The proxy reads auth credentials from the registry directly.
+        server_port = os.getenv("AUTOFORGE_SERVER_PORT", "8888")
+        proxy_base_url = f"http://127.0.0.1:{server_port}/proxy"
+        sdk_env["ANTHROPIC_BASE_URL"] = proxy_base_url
+        # Clear auth tokens - the proxy reads them from registry settings
+        sdk_env["ANTHROPIC_API_KEY"] = ""
+        sdk_env["ANTHROPIC_AUTH_TOKEN"] = ""
+    else:
+        # Anthropic-compatible providers (GLM, Kimi, Azure, etc.)
+        # Base URL
+        base_url = all_settings.get("api_base_url") or provider.get("base_url")
+        if base_url:
+            sdk_env["ANTHROPIC_BASE_URL"] = base_url
 
-    # Auth token
-    auth_token = all_settings.get("api_auth_token")
-    if auth_token:
-        sdk_env[auth_env_var] = auth_token
+        # Auth token
+        auth_token = all_settings.get("api_auth_token")
+        if auth_token:
+            sdk_env[auth_env_var] = auth_token
 
     # Model - set all three tier overrides to the same model
     model = all_settings.get("api_model") or provider.get("default_model")

@@ -264,6 +264,7 @@ def start_dev_server(port: int, host: str = "127.0.0.1") -> tuple:
 
     # Set environment for remote access if needed
     env = os.environ.copy()
+    env["AUTOFORGE_SERVER_PORT"] = str(port)
     if host != "127.0.0.1":
         env["AUTOFORGE_ALLOW_REMOTE"] = "1"
 
@@ -294,6 +295,7 @@ def start_production_server(port: int, host: str = "127.0.0.1"):
     print(f"\n  Starting server at http://{host}:{port}")
 
     env = os.environ.copy()
+    env["AUTOFORGE_SERVER_PORT"] = str(port)
 
     # Enable remote access in server if not localhost
     if host != "127.0.0.1":
